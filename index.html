@@ -504,7 +504,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
     <div class="cfg-section">
       <div class="cfg-section-title">⚠️ Zona peligrosa</div>
       <button class="danger-btn" onclick="clearAll()">Borrar todos los datos</button>
-      <div style="text-align:center;font-size:10px;color:var(--text3);margin-top:14px">finanzas pe · versión 18 · <a href="#" onclick="checkUpdate(true);return false" style="color:inherit">buscar actualización</a></div>
+      <div style="text-align:center;font-size:10px;color:var(--text3);margin-top:14px">finanzas pe · versión 19 · <a href="#" onclick="checkUpdate(true);return false" style="color:inherit">buscar actualización</a></div>
     </div>
   </div>
 
@@ -1785,12 +1785,27 @@ function suggestAcc(c,kind){
   }
   return pick(ACCOUNTS.find(a=>a.toLowerCase()===bank)||ACCOUNTS.find(a=>a.toLowerCase().includes(bank))||'');
 }
-function accSelect(id,kind,current){
+// side: la cuenta del correo (banco y número), para crear la cuenta o tarjeta ahí mismo si aún no existe
+function accSelect(id,kind,current,side){
   const items=[];
   if(kind!=='card') ACCOUNTS.forEach(a=>items.push([a,a]));
   if(kind==='any'||kind==='card') cards.forEach(c=>items.push([c.name,'💳 '+c.name]));
   if(kind!=='card') items.push([OUTSIDE,kind==='dest'?'↗ Fuera de mis cuentas':'🚫 No es mía (ignorar)']);
-  return `<select id="${id}"><option value="">— Elegir —</option>${items.map(([v,l])=>`<option value="${esc(v)}"${v===current?' selected':''}>${esc(l)}</option>`).join('')}</select>`;
+  if(kind!=='card') items.push(['__newacc__','+ Nueva cuenta…']);
+  if(kind==='any'||kind==='card') items.push(['__newcard__','+ Nueva T. crédito…']);
+  const c=side||{};
+  return `<select id="${id}" data-bank="${esc(c.banco||'')}" data-num="${esc(c.cuenta||'')}" data-nombre="${esc(c.nombre||'')}" onchange="inboxSelNew(this)"><option value="">— Elegir —</option>${items.map(([v,l])=>`<option value="${esc(v)}"${v===current?' selected':''}>${esc(l)}</option>`).join('')}</select>`;
+}
+// "+ Nueva cuenta / T. crédito" en la bandeja: abre el editor con el banco y el número del correo ya puestos
+function inboxSelNew(sel){
+  const v=sel.value;
+  if(v!=='__newacc__'&&v!=='__newcard__') return;
+  sel.value='';
+  const d=sel.dataset, num=/^\d+$/.test(d.num)?d.num:'';
+  const bank=d.bank&&d.bank!=='Efectivo'?bankDisplay(d.bank):'';
+  if(bank&&!BANKS.some(b=>bankNorm(b)===bankNorm(bank))){BANKS.push(bank);saveBankState()}
+  if(v==='__newcard__') openAccEdit(null,'tarjeta',bank,{number:num});
+  else openAccEdit(null,'cuenta',bank,/tarjeta de d[eé]bito/i.test(d.nombre)?{debit:num}:{number:num});
 }
 
 // ── Categoría automática: la que usaste la última vez para ese comercio, o una regla por palabras ──
@@ -1819,7 +1834,7 @@ function guessCat(desc,tipo){
 function inboxFields(m){
   if(m.tipo==='gasto') return [{k:'origen',kind:'any',lbl:'Pagado con'},{cat:true}];
   if(m.tipo==='ingreso') return [{k:'destino',kind:'account',lbl:'Cuenta'},{cat:true}];
-  if(m.tipo==='pago') return [{k:'origen',kind:'account',lbl:'Pagado desde'},{k:'destino',kind:'card',lbl:'Tarjeta'}];
+  if(m.tipo==='pago') return [{k:'origen',kind:'account',lbl:'Desde la cuenta'},{k:'destino',kind:'card',lbl:'A la tarjeta'}];
   return [{k:'origen',kind:'account',lbl:'Desde'},{k:'destino',kind:'dest',lbl:'Hacia'}];
 }
 // Listo para "Confirmar todos": todas sus cuentas ya están asignadas (o es efectivo)
@@ -1875,7 +1890,7 @@ function renderInbox(){
       const amtCls=m.tipo==='ingreso'?'ingreso':m.tipo==='transferencia'?'':'gasto';
       const second=f[1].cat
         ?`<select id="ib-cat-${m.id}">${(m.tipo==='ingreso'?CATS_I:CATS_G).map(c=>`<option value="${esc(c)}"${c===guessCat(m.desc,m.tipo)?' selected':''}>${esc(c)}</option>`).join('')}</select>`
-        :accSelect('ib-b-'+m.id,f[1].kind,suggestAcc(m[f[1].k],f[1].kind));
+        :accSelect('ib-b-'+m.id,f[1].kind,suggestAcc(m[f[1].k],f[1].kind),m[f[1].k]);
       return `<div class="inbox-item">
         <div class="inbox-top">
           <div class="tx-icon ${m.tipo==='ingreso'?'ingreso':'gasto'}">${ICON[m.tipo]||'💸'}</div>
@@ -1883,7 +1898,7 @@ function renderInbox(){
           <div class="tx-right"><div class="tx-amt ${amtCls}">${SIGN[m.tipo]||''} ${fmtOrig(m.monto,m.moneda)}</div>${m.montoDestino&&m.monedaDestino!==m.moneda?`<div class="tx-sub">→ ${fmtOrig(m.montoDestino,m.monedaDestino)}</div>`:''}</div>
         </div>
         <div class="row2">
-          <div><div class="quick-label" style="margin-bottom:3px">${f[0].lbl}</div>${accSelect('ib-a-'+m.id,f[0].kind,suggestAcc(m[f[0].k],f[0].kind))}</div>
+          <div><div class="quick-label" style="margin-bottom:3px">${f[0].lbl}</div>${accSelect('ib-a-'+m.id,f[0].kind,suggestAcc(m[f[0].k],f[0].kind),m[f[0].k])}</div>
           <div><div class="quick-label" style="margin-bottom:3px">${f[1].cat?'Categoría':f[1].lbl}</div>${second}</div>
         </div>
         ${dup?`<div class="inbox-warn">⚠ Parecido a «${esc(dup.desc)}» del ${new Date(dup.date+'T12:00').toLocaleDateString('es-PE',{day:'numeric',month:'short'})}. Si ya lo registraste, descártalo.</div>`:''}
@@ -2307,11 +2322,12 @@ function bankSelect(cur){
   return `<select id="ae-bank"><option value=""${!cur?' selected':''}>Sin banco</option>${BANKS.map(b=>`<option value="${esc(b)}"${bankNorm(b)===bankNorm(cur)&&cur?' selected':''}>${esc(b)}</option>`).join('')}</select>`;
 }
 function aeField(label,input,hint){return `<div><div class="ae-lbl">${label}</div>${input}${hint?`<div class="ae-hint">${hint}</div>`:''}</div>`}
-function openAccEdit(name,kind,bank){
+function openAccEdit(name,kind,bank,pre){
   _ae={kind,name};
+  pre=pre||{};
   const body=document.getElementById('ae-body');
   if(kind==='cuenta'){
-    const x=name?metaOf(name):{...metaOf(''),bank:bank||''};
+    const x=name?metaOf(name):{...metaOf(''),bank:bank||'',number:pre.number||'',debit:pre.debit||''};
     document.getElementById('ae-title').textContent=name?'Editar cuenta':'Nueva cuenta';
     body.innerHTML=
       aeField('Nombre',`<input id="ae-name" value="${esc(name||'')}" maxlength="30" placeholder="Ej: BCP Corriente S/"/>`)+
@@ -2322,7 +2338,7 @@ function openAccEdit(name,kind,bank){
       `<button class="btn-add" onclick="saveAccEdit()">Guardar</button>`+
       (name&&name!=='Efectivo'?`<button class="danger-btn" onclick="deleteAccEdit()">Eliminar cuenta</button>`:'');
   } else {
-    const c=name?cards.find(k=>k.name===name):{name:'',bank:bank||'',number:'',limitPEN:0,cycle:'',payDay:'',extra:[]};
+    const c=name?cards.find(k=>k.name===name):{name:'',bank:bank||'',number:pre.number||'',limitPEN:0,cycle:'',payDay:'',extra:[]};
     document.getElementById('ae-title').textContent=name?'Editar T. crédito':'Nueva T. crédito';
     body.innerHTML=
       aeField('Nombre',`<input id="ae-name" value="${esc(c.name)}" maxlength="30" placeholder="Ej: Visa Platinum BCP"/>`)+
@@ -2633,7 +2649,7 @@ if('serviceWorker' in navigator && location.protocol!=='file:'){
 }
 // ─── ACTUALIZACIONES ───
 // Compara con la versión publicada; si hay una más nueva, muestra un aviso para cargarla
-const APP_VERSION=18;
+const APP_VERSION=19;
 async function checkUpdate(manual){
   if(location.protocol==='file:') return;
   try{
