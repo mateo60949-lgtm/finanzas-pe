@@ -197,7 +197,7 @@ function cuenta_(banco, cuenta, nombre) { return { banco: banco || '', cuenta: c
 const NADA = cuenta_();
 const EFECTIVO = cuenta_('Efectivo', 'efectivo', 'Efectivo');
 
-const IGNORAR = /rechaz|visualizaci|configuraci|estado de cuenta|c[oó]digo de verificaci|dispositivo|actualizaste|viabcp|dep[oó]sito a plazo|cuenta power|bienvenid|encuesta|token|clave/i;
+const IGNORAR = /rechaz|visualizaci|configuraci|estado de cuenta|c[oó]digo de verificaci|dispositivo|actualizaste|viabcp|dep[oó]sito a plazo|cuenta power|bienvenid|encuesta|token|clave|activaci[oó]n|bloqueo|desbloqueo|afiliaci/i;
 
 /**
  * Convierte un correo en movimiento.
@@ -374,7 +374,10 @@ function doGet(e) {
     montoDestino: f[13] ? Number(f[13]) : null, monedaDestino: f[14] || null, confianza: f[15],
   }));
   const hRev = hoja_(CONFIG.HOJA_REV, COLS_REV);
-  return json_({ ok: true, movimientos, sinLeer: Math.max(hRev.getLastRow() - 1, 0), actualizado: Utilities.formatDate(new Date(), CONFIG.ZONA, 'yyyy-MM-dd HH:mm') });
+  // No se cuentan los avisos sin dinero que quedaron ahí antes de que existiera su regla (ej: activación de tarjeta)
+  const nRev = hRev.getLastRow() - 1;
+  const sinLeer = nRev > 0 ? hRev.getRange(2, 4, nRev, 1).getValues().filter(r => r[0] && !IGNORAR.test(String(r[0]))).length : 0;
+  return json_({ ok: true, movimientos, sinLeer, hoja: SpreadsheetApp.getActive().getUrl(), actualizado: Utilities.formatDate(new Date(), CONFIG.ZONA, 'yyyy-MM-dd HH:mm') });
 }
 
 function doPost(e) {

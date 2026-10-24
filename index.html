@@ -538,7 +538,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
       <button class="danger-btn" style="margin-bottom:8px" onclick="freshStart()">Empezar de cero desde hoy</button>
       <div style="font-size:10px;color:var(--text3);margin:-2px 2px 12px">Borra todos los movimientos y saldos iniciales, pero conserva tus bancos, cuentas, tarjetas, categorías y presupuestos. Después pones el saldo de cada cuenta y la deuda de cada tarjeta, y desde ese momento todo se suma solo.</div>
       <button class="danger-btn" onclick="clearAll()">Borrar todos los datos</button>
-      <div style="text-align:center;font-size:10px;color:var(--text3);margin-top:14px">finanzas pe · versión 26 · <a href="#" onclick="checkUpdate(true);return false" style="color:inherit">buscar actualización</a></div>
+      <div style="text-align:center;font-size:10px;color:var(--text3);margin-top:14px">finanzas pe · versión 27 · <a href="#" onclick="checkUpdate(true);return false" style="color:inherit">buscar actualización</a></div>
     </div>
   </div>
 
@@ -1333,14 +1333,25 @@ function renderDash(){
       return `<div class="acc-card" onclick="openAccModal(${jsArg(acc)})">
         <div class="acc-card-name">${ic} ${esc(acc)}</div>
         <div class="acc-card-bal ${b<0?'neg':''}">${b<0?'−':''}${accSym}${Math.abs(b).toFixed(2)}</div>
-        <div class="acc-card-sub">${x&&x.number?'Cuenta '+esc(x.number):'Toca para editar saldo'}</div>
+        <div class="acc-card-sub">${x&&(x.number||x.debit)?esc([x.number?'Cuenta '+x.number:'',x.debit?'T. débito '+x.debit:''].filter(Boolean).join(' · ')):'Toca para editar saldo'}</div>
+      </div>`;
+    };
+    // Tarjetas de crédito: deuda en rojo, con su número; al tocar abre su pestaña
+    const ccCard=i=>{
+      const c=cards[i], d=cardDebt(i);
+      const amt=[d.pen>=0.005||d.usd<0.005?'S/'+d.pen.toFixed(2):'',d.usd>=0.005?'US$'+d.usd.toFixed(2):''].filter(Boolean);
+      return `<div class="acc-card" onclick="selectCard(${jsArg(c.name)});switchTab('tarjeta')">
+        <div class="acc-card-name">💳 ${esc(c.name)}</div>
+        <div class="acc-card-bal ${d.pen>=0.005||d.usd>=0.005?'neg':''}">${d.pen>=0.005||d.usd>=0.005?'−':''}${amt.join(' + ')}</div>
+        <div class="acc-card-sub">${c.number?'T. crédito '+esc(c.number)+' · ':''}deuda</div>
       </div>`;
     };
     // Agrupadas por banco, con el nombre del banco encima; al final las que no tienen banco (efectivo, billeteras)
     const bankOf=a=>(accMeta&&accMeta[a]&&accMeta[a].bank)||'';
-    const groups=[...BANKS.map(b=>[b,ACCOUNTS.filter(a=>bankNorm(bankOf(a))===bankNorm(b)&&bankOf(a))]),
-      ['Sin banco',ACCOUNTS.filter(a=>!bankOf(a)||!BANKS.some(b=>bankNorm(b)===bankNorm(bankOf(a))))]].filter(([,l])=>l.length);
-    aEl.innerHTML=groups.map(([b,l])=>`<div class="dash-section-title" style="grid-column:span 2;margin:${b===groups[0][0]?'0':'6px'} 2px 0">${esc(b)}</div>`+l.map(accCard).join('')).join('');
+    const cardsOf=b=>cards.map((c,i)=>i).filter(i=>b?bankNorm(cards[i].bank)===bankNorm(b)&&cards[i].bank:!cards[i].bank||!BANKS.some(x=>bankNorm(x)===bankNorm(cards[i].bank)));
+    const groups=[...BANKS.map(b=>[b,ACCOUNTS.filter(a=>bankNorm(bankOf(a))===bankNorm(b)&&bankOf(a)),cardsOf(b)]),
+      ['Sin banco',ACCOUNTS.filter(a=>!bankOf(a)||!BANKS.some(b=>bankNorm(b)===bankNorm(bankOf(a)))),cardsOf('')]].filter(([,l,cc])=>l.length||cc.length);
+    aEl.innerHTML=groups.map(([b,l,cc],gi)=>`<div class="dash-section-title" style="grid-column:span 2;margin:${gi?'6px':'0'} 2px 0">${esc(b)}</div>`+l.map(accCard).join('')+cc.map(ccCard).join('')).join('');
   }
 
   // Inversiones
@@ -1984,7 +1995,7 @@ async function syncNow(manual){
       if(r){inbox.push(r); added++}
     });
     inbox.sort((a,b)=>(b.fecha+b.hora).localeCompare(a.fecha+a.hora));
-    syncCfg.last=new Date().toISOString(); syncCfg.sinLeer=j.sinLeer||0; syncCfg.error='';
+    syncCfg.last=new Date().toISOString(); syncCfg.sinLeer=j.sinLeer||0; if(j.hoja) syncCfg.hoja=j.hoja; syncCfg.error='';
     // Detecta movimientos ya confirmados que no están en la cuenta que les corresponde
     syncCfg.misplaced=buildReassignPlan(new Map((j.movimientos||[]).map(m=>[m.id,m]))).plan.reduce((s,p)=>s+p.olds.length,0);
     saveSyncState();
@@ -2198,7 +2209,7 @@ function renderInbox(){
   const ago=syncCfg.last?timeAgo(syncCfg.last):'nunca';
   const status=syncCfg.error
     ?`<span style="color:var(--red)">⚠ ${esc(syncCfg.error)}</span>`
-    :`Sincronizado ${ago}${syncCfg.sinLeer?` · ${syncCfg.sinLeer} correo(s) sin reconocer en la hoja «Revisar»`:''}${syncCfg.cloudError?' · <span style="color:var(--red)">⚠ la copia en la nube no se pudo guardar</span>':''}`;
+    :`Sincronizado ${ago}${syncCfg.sinLeer?` · ${syncCfg.hoja?`<a href="${esc(syncCfg.hoja)}" target="_blank" rel="noopener" style="color:inherit">${syncCfg.sinLeer} correo(s) sin reconocer: ver en tu hoja (pestaña Revisar)</a>`:`${syncCfg.sinLeer} correo(s) sin reconocer en tu hoja de Google «finanzas.pe», pestaña Revisar`}`:''}${syncCfg.cloudError?' · <span style="color:var(--red)">⚠ la copia en la nube no se pudo guardar</span>':''}`;
   const conflict=syncCfg.cloudConflict?`<div class="card" style="border-color:var(--red);background:var(--red-bg)">
       <div style="font-size:12px;font-weight:700;color:var(--red);margin-bottom:4px">⚠ Hay una copia más nueva en la nube</div>
       <div style="font-size:11px;color:var(--text2);margin-bottom:10px">Otro dispositivo guardó tus datos el ${new Date(syncCfg.cloudConflict.fecha).toLocaleString('es-PE',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})} (${syncCfg.cloudConflict.n} movimientos). Para no perder nada, elige con cuál quedarte. Mientras tanto no se sube nada.</div>
@@ -3014,7 +3025,7 @@ if('serviceWorker' in navigator && location.protocol!=='file:'){
 }
 // ─── ACTUALIZACIONES ───
 // Compara con la versión publicada; si hay una más nueva, muestra un aviso para cargarla
-const APP_VERSION=26;
+const APP_VERSION=27;
 async function checkUpdate(manual){
   if(location.protocol==='file:') return;
   try{
