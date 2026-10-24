@@ -412,9 +412,20 @@ function precios_(tickers) {
     const fila = h.getLastRow() + 1;
     h.getRange(fila, 1, nuevos.length, 4).setFormulas(nuevos.map((t, i) => {
       const r = fila + i;
-      return ['="' + t + '"', '=IFERROR(GOOGLEFINANCE(A' + r + ',"price"),"")', '=IFERROR(GOOGLEFINANCE(A' + r + ',"currency"),"")', '=IFERROR(GOOGLEFINANCE(A' + r + ',"name"),"")'];
+      return ['="' + t + '"', formulaPrecio_(t, r), '=IFERROR(GOOGLEFINANCE(A' + r + ',"currency"),"")', '=IFERROR(GOOGLEFINANCE(A' + r + ',"name"),"")'];
     }));
     SpreadsheetApp.flush();
+  }
+  // Filas de monedas creadas con la fórmula de acciones (no funciona para CURRENCY:): se corrigen
+  const nn = h.getLastRow() - 1;
+  if (nn > 0) {
+    const forms = h.getRange(2, 1, nn, 2).getFormulas(), vals = h.getRange(2, 1, nn, 1).getValues();
+    let arreglo = false;
+    vals.forEach((v, i) => {
+      const t = String(v[0]).toUpperCase(), r = i + 2;
+      if (/^CURRENCY:/.test(t) && forms[i][1] !== formulaPrecio_(t, r)) { h.getRange(r, 2).setFormula(formulaPrecio_(t, r)); arreglo = true; }
+    });
+    if (arreglo) SpreadsheetApp.flush();
   }
   const m = h.getLastRow() - 1;
   const filas = m > 0 ? h.getRange(2, 1, m, 4).getValues() : [];
@@ -450,6 +461,11 @@ function historicos_(pares) {
     if (pedidos.includes(k)) out[k] = typeof f[1] === 'number' && f[1] > 0 ? f[1] : null;
   });
   return out;
+}
+
+// Monedas (CURRENCY:USDPEN) se piden sin atributo; acciones y ETFs con "price"
+function formulaPrecio_(t, r) {
+  return /^CURRENCY:/.test(t) ? '=IFERROR(GOOGLEFINANCE(A' + r + '),"")' : '=IFERROR(GOOGLEFINANCE(A' + r + ',"price"),"")';
 }
 
 // El respaldo se parte en trozos porque una celda admite ~50.000 caracteres
