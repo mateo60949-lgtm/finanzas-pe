@@ -476,7 +476,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
     <div class="cfg-section">
       <div class="cfg-section-title">⚠️ Zona peligrosa</div>
       <button class="danger-btn" onclick="clearAll()">Borrar todos los datos</button>
-      <div style="text-align:center;font-size:10px;color:var(--text3);margin-top:14px">finanzas pe · versión 12</div>
+      <div style="text-align:center;font-size:10px;color:var(--text3);margin-top:14px">finanzas pe · versión 13</div>
     </div>
   </div>
 
@@ -1178,18 +1178,24 @@ function renderDash(){
   const aEl=document.getElementById('dash-accounts');
   if(!ACCOUNTS.length){aEl.innerHTML='<div class="empty" style="grid-column:span 2;padding:1rem 0">Sin cuentas en Config</div>';}
   else{
-    aEl.innerHTML=ACCOUNTS.map(acc=>{
+    const accCard=acc=>{
       const tot = accTotals(acc);
       const cur = accCur(acc);
       const b = cur === 'USD' ? tot.totalUSD : tot.totalPEN;
       const accSym = cur === 'PEN' ? 'S/' : 'US$';
       const ic=ACC_ICONS[acc]||'🏦';
+      const x=accMeta&&accMeta[acc];
       return `<div class="acc-card" onclick="openAccModal(${jsArg(acc)})">
         <div class="acc-card-name">${ic} ${esc(acc)}</div>
         <div class="acc-card-bal ${b<0?'neg':''}">${b<0?'−':''}${accSym}${Math.abs(b).toFixed(2)}</div>
-        <div class="acc-card-sub">Toca para editar saldo</div>
+        <div class="acc-card-sub">${x&&x.number?'Cuenta '+esc(x.number):'Toca para editar saldo'}</div>
       </div>`;
-    }).join('');
+    };
+    // Agrupadas por banco, con el nombre del banco encima; al final las que no tienen banco (efectivo, billeteras)
+    const bankOf=a=>(accMeta&&accMeta[a]&&accMeta[a].bank)||'';
+    const groups=[...BANKS.map(b=>[b,ACCOUNTS.filter(a=>bankNorm(bankOf(a))===bankNorm(b)&&bankOf(a))]),
+      ['Sin banco',ACCOUNTS.filter(a=>!bankOf(a)||!BANKS.some(b=>bankNorm(b)===bankNorm(bankOf(a))))]].filter(([,l])=>l.length);
+    aEl.innerHTML=groups.map(([b,l])=>`<div class="dash-section-title" style="grid-column:span 2;margin:${b===groups[0][0]?'0':'6px'} 2px 0">${esc(b)}</div>`+l.map(accCard).join('')).join('');
   }
 
   // Budget preview
