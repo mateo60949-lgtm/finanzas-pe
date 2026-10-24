@@ -133,6 +133,14 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 .cc-name-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:2px}
 .cc-edit{background:none;border:0.5px solid rgba(255,255,255,0.3);color:white;opacity:0.8;border-radius:12px;padding:3px 10px;font-size:10px;font-family:'Syne',sans-serif;cursor:pointer}
 .cc-dates{font-size:10px;opacity:0.55;margin-bottom:10px}
+.cc-cycle{margin:2px 0 12px;border:0.5px solid rgba(255,255,255,0.14);border-radius:10px;overflow:hidden}
+.cc-cyc-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 12px}
+.cc-cyc-row.soft{background:rgba(255,255,255,0.05);border-top:0.5px solid rgba(255,255,255,0.1)}
+.cc-cyc-lbl{font-size:10px;letter-spacing:0.05em;text-transform:uppercase;opacity:0.6}
+.cc-cyc-due{font-size:11px;font-weight:600;color:#E8C97A;margin-top:3px}
+.cc-cyc-due.late{color:#E87A7A}
+.cc-cyc-amt{font-family:'DM Mono',monospace;font-size:15px;font-weight:500;text-align:right;white-space:nowrap}
+.cc-cyc-row.soft .cc-cyc-amt{font-size:13px;opacity:0.8}
 .cc-split{border-top:0.5px solid rgba(255,255,255,0.1);margin-top:8px;padding-top:8px;display:flex;flex-direction:column;gap:3px}
 .cc-split div{display:flex;justify-content:space-between;font-size:10px;opacity:0.6}
 .cc-split span:last-child{font-family:'DM Mono',monospace}
@@ -496,7 +504,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
     <div class="cfg-section">
       <div class="cfg-section-title">⚠️ Zona peligrosa</div>
       <button class="danger-btn" onclick="clearAll()">Borrar todos los datos</button>
-      <div style="text-align:center;font-size:10px;color:var(--text3);margin-top:14px">finanzas pe · versión 17 · <a href="#" onclick="checkUpdate(true);return false" style="color:inherit">buscar actualización</a></div>
+      <div style="text-align:center;font-size:10px;color:var(--text3);margin-top:14px">finanzas pe · versión 18 · <a href="#" onclick="checkUpdate(true);return false" style="color:inherit">buscar actualización</a></div>
     </div>
   </div>
 
@@ -874,14 +882,50 @@ function findTransferPair(t){
 // ─── CREDIT CARDS ───
 
 // Deuda total de la tarjeta a la fecha: todos los consumos menos todos los pagos
-function cardDebt(i){
+// Consumos y pagos de una tarjeta. La deuda inicial (lo que se debía antes de registrar) cuenta como un consumo anterior a todo
+function cardTx(i){
   const c=cards[i];
   const isMine=t=>t.ccName===c.name||(t.ccName===undefined&&t.ccIndex===i);
-  const sign=t=>(t.type==='tarjeta'&&isMine(t))||((t.type==='gasto'||t.type==='extra')&&t.method===c.name)?1:(t.type==='pago'&&isMine(t)?-1:0);
-  const d={PEN:0,USD:0};
-  data.forEach(t=>{const s=sign(t);if(s) d[t.cur==='USD'?'USD':'PEN']+=s*t.amt});
-  return {pen:Math.max(d.PEN,0),usd:Math.max(d.USD,0)};
+  const charges=data.filter(t=>(t.type==='tarjeta'&&isMine(t))||((t.type==='gasto'||t.type==='extra')&&t.method===c.name));
+  const pays=data.filter(t=>t.type==='pago'&&isMine(t));
+  const init=c.initDebt||{};
+  [['PEN',init.PEN],['USD',init.USD]].forEach(([cur,amt])=>{if(amt>0) charges.push({date:'0000-00-00',amt:+amt,cur,init:true})});
+  return {charges,pays};
 }
+const sumCur=(list,cur)=>list.filter(t=>(t.cur==='USD'?'USD':'PEN')===cur).reduce((s,t)=>s+t.amt,0);
+// Deuda total de la tarjeta a la fecha: todos los consumos menos todos los pagos
+function cardDebt(i){
+  const {charges,pays}=cardTx(i);
+  return {pen:Math.max(sumCur(charges,'PEN')-sumCur(pays,'PEN'),0),usd:Math.max(sumCur(charges,'USD')-sumCur(pays,'USD'),0)};
+}
+// Fecha con ese día en el mes dado (en meses cortos, el último día)
+function dayIn(y,m,day){return new Date(y,m,Math.min(day,new Date(y,m+1,0).getDate()))}
+// Ciclo de facturación según el día de corte y de pago:
+//  facturado = lo que cerró en el último corte y aún no se paga · porFacturar = consumos desde ese corte
+// Los pagos se aplican primero a lo facturado; lo que sobra cubre lo por facturar
+function cardCycle(i){
+  const c=cards[i], C=parseInt(c.cycle), P=parseInt(c.payDay);
+  if(!(C>=1&&C<=31)) return null;
+  const today=new Date(); today.setHours(0,0,0,0);
+  let cut=dayIn(today.getFullYear(),today.getMonth(),C);
+  if(cut>=today) cut=dayIn(today.getFullYear(),today.getMonth()-1,C); // el corte de hoy cierra al terminar el día
+  const prevCut=dayIn(cut.getFullYear(),cut.getMonth()-1,C);
+  const nextCut=dayIn(cut.getFullYear(),cut.getMonth()+1,C);
+  let due=null;
+  if(P>=1&&P<=31){due=dayIn(cut.getFullYear(),cut.getMonth(),P);if(due<=cut) due=dayIn(cut.getFullYear(),cut.getMonth()+1,P)}
+  const cutS=todayStr(cut);
+  const {charges,pays}=cardTx(i);
+  const billed={}, pending={};
+  ['PEN','USD'].forEach(cur=>{
+    const b=sumCur(charges.filter(t=>t.date<=cutS),cur), n=sumCur(charges.filter(t=>t.date>cutS),cur), p=sumCur(pays,cur);
+    billed[cur]=Math.max(b-p,0);
+    pending[cur]=Math.max(n-Math.max(p-b,0),0);
+  });
+  const owes=billed.PEN>=0.01||billed.USD>=0.01;
+  return {cut,prevCut,nextCut,due,cutS,prevCutS:todayStr(prevCut),billed,pending,owes,overdue:owes&&due&&due<today};
+}
+const twoCur=(o)=>[o.PEN>=0.01?fmtSym(o.PEN,'PEN'):'',o.USD>=0.01?fmtSym(o.USD,'USD'):''].filter(Boolean).join(' + ');
+const shortDate=d=>d.toLocaleDateString('es-PE',{day:'numeric',month:'short'});
 // Próxima fecha con ese día del mes (hoy incluido); en meses cortos se usa el último día
 function nextDay(day){
   const n=parseInt(day);
@@ -900,17 +944,27 @@ function cardDatesLabel(c){
   if(p) parts.push('Pago '+p.toLocaleDateString('es-PE',{day:'numeric',month:'short'})+' ('+inDays(daysUntil(p))+')');
   return parts.length?' · '+parts.join(' · '):'';
 }
+// Aviso en Inicio: 5 días antes de la fecha de pago (o si ya venció) mientras haya algo facturado sin pagar
 function renderPayReminders(){
   const el=document.getElementById('dash-pay');
   el.innerHTML=cards.map((c,i)=>{
-    const p=nextDay(c.payDay);
-    if(!p) return '';
-    const n=daysUntil(p), d=cardDebt(i);
-    if(n>5||(d.pen<0.01&&d.usd<0.01)) return '';
-    const amt=[d.pen>=0.01?fmtSym(d.pen,'PEN'):'',d.usd>=0.01?fmtSym(d.usd,'USD'):''].filter(Boolean).join(' + ');
-    return `<div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:8px;border-color:var(--blue);background:var(--blue-bg)">
-      <div style="font-size:12px;font-weight:600;color:var(--blue)">💳 Pago de ${esc(c.name)} ${inDays(n)}<div style="font-weight:400;font-size:10px;margin-top:2px">Deuda registrada: ${amt}</div></div>
-      <button class="cfg-btn" onclick="switchTab('tarjeta')">Ver</button>
+    const cy=cardCycle(i);
+    let due, amt;
+    if(cy){
+      if(!cy.owes||!cy.due) return '';
+      due=cy.due; amt=twoCur(cy.billed);
+    } else {
+      // Sin día de corte: se usa el día de pago y la deuda total
+      const p=nextDay(c.payDay), d=cardDebt(i);
+      if(!p||(d.pen<0.01&&d.usd<0.01)) return '';
+      due=p; amt=twoCur({PEN:d.pen,USD:d.usd});
+    }
+    const n=daysUntil(due);
+    if(n>5) return '';
+    const late=n<0;
+    return `<div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:8px;border-color:var(--${late?'red':'blue'});background:var(--${late?'red':'blue'}-bg)">
+      <div style="font-size:12px;font-weight:600;color:var(--${late?'red':'blue'})">💳 ${late?'Pago vencido':'Pago'} de ${esc(c.name)} ${late?'el '+shortDate(due):inDays(n)}<div style="font-weight:400;font-size:10px;margin-top:2px">${cy?'Facturado':'Deuda registrada'}: ${amt}</div></div>
+      <button class="cfg-btn" onclick="selectCard(${jsArg(c.name)});switchTab('tarjeta')">Ver</button>
     </div>`;
   }).join('');
 }
@@ -944,12 +998,10 @@ function renderCC(){
         <div class="cc-tab-debt">${esc(debtTxt(cardDebt(k)))}</div></button>`;
     }).join('')}<button class="cc-tab cc-tab-add" onclick="openAccEdit(null,'tarjeta')"><div class="cc-tab-name">+ Tarjeta</div></button></div>`;
 
-  const isMine=t=>t.ccName===c.name||(t.ccName===undefined&&t.ccIndex===i);
-  const isCharge=t=>(t.type==='tarjeta'&&isMine(t))||((t.type==='gasto'||t.type==='extra')&&t.method===c.name);
-  const isPay=t=>t.type==='pago'&&isMine(t);
-  const sumCur=(list,cur)=>list.filter(t=>t.cur===cur).reduce((s,t)=>s+t.amt,0);
+  const {charges,pays}=cardTx(i);
+  const cy=cardCycle(i);
   // Deuda acumulada hasta el mes visto: la deuda no pagada pasa al mes siguiente
-  const allCharges=upTo.filter(isCharge), allPays=upTo.filter(isPay);
+  const allCharges=charges.filter(t=>t.date.slice(0,7)<=mk), allPays=pays.filter(t=>t.date.slice(0,7)<=mk);
   const usedPENpos=Math.max(sumCur(allCharges,'PEN')-sumCur(allPays,'PEN'),0);
   const usedUSDpos=Math.max(sumCur(allCharges,'USD')-sumCur(allPays,'USD'),0);
   // Línea de crédito única en soles; los dólares se convierten solo para la barra
@@ -965,19 +1017,43 @@ function renderCC(){
   const accountsOpts=cur=>ACCOUNTS.map(a=>`<option value="${esc(a)}"${a===payFrom(cur)?' selected':''}>${esc(a)}</option>`).join('');
   const payRow=(cur,lbl)=>`<div class="cc-drawer-row">
       <span class="cc-drawer-label">${lbl}</span>
-      <input class="cc-drawer-input" id="cc-pay-amt-${cur.toLowerCase()}-${i}" type="number" min="0" step="0.01" inputmode="decimal" placeholder="Monto" value="${(cur==='USD'?usedUSDpos:usedPENpos).toFixed(2)}"/>
+      <input class="cc-drawer-input" id="cc-pay-amt-${cur.toLowerCase()}-${i}" type="number" min="0" step="0.01" inputmode="decimal" placeholder="Monto" value="${(cy?cy.billed[cur]:(cur==='USD'?usedUSDpos:usedPENpos)).toFixed(2)}"/>
       <select class="cc-drawer-sel" id="cc-pay-from-${cur.toLowerCase()}-${i}">${accountsOpts(cur)}</select>
       <button class="cc-drawer-btn" onclick="payCC(${i},'${cur}')">Pagar</button>
     </div>`;
-  const movs=[...md.filter(isCharge).map(t=>[t,false]),...md.filter(isPay).map(t=>[t,true])]
+  const real=charges.filter(t=>!t.init);
+  const movRow=([t,isP])=>`
+      <div class="tx-item">
+        <div class="tx-icon ${isP?'gasto':'tarjeta'}">${isP?'🔁':'💳'}</div>
+        <div class="tx-info" onclick="openTxModal(${t.id})"><div class="tx-desc">${esc(t.desc)}</div><div class="tx-meta">${isP?'Pago desde '+esc(t.method||''):esc(t.cat||'')} · ${new Date(t.date+'T12:00').toLocaleDateString('es-PE',{day:'numeric',month:'short'})}</div></div>
+        <div class="tx-right"><div class="tx-amt ${isP?'ingreso':'tarjeta'}">${isP?'+':'−'} ${fmtOrig(t.amt,t.cur)}</div>${t.cur!==displayCur?`<div class="tx-sub">≈ ${fmt(toDisplay(t.amt,t.cur))}</div>`:''}</div>
+        <button class="tx-del" onclick="deleteTx(${t.id})">×</button>
+      </div>`;
+  const list=(from,to)=>[...real.filter(t=>t.date>from&&t.date<=to).map(t=>[t,false]),...pays.filter(t=>t.date>from&&t.date<=to).map(t=>[t,true])]
     .sort((a,b)=>b[0].date.localeCompare(a[0].date));
+  // Con día de corte: movimientos por estado de cuenta; sin él, por mes del calendario
+  const sections=cy
+    ?[[`Por facturar · desde el ${shortDate(new Date(cy.cut.getTime()+864e5))}`,list(cy.cutS,'9999')],
+      [`Estado de cuenta · ${shortDate(new Date(cy.prevCut.getTime()+864e5))} al ${shortDate(cy.cut)}`,list(cy.prevCutS,cy.cutS)]]
+    :[[`Movimientos de ${monthLabel(viewDate)}`,list(mk+'-00',mk+'-99')]];
   el.innerHTML=tabs+`<div class="cc-card">
       <div class="cc-bank">${esc(c.bank||'Sin banco')}${c.number?' · T. crédito •••• '+esc(c.number):''}</div>
       <div class="cc-name-row"><div style="font-size:16px;font-weight:700">${esc(c.name)}</div>
         <button class="cc-edit" onclick="openAccEdit(${jsArg(c.name)},'tarjeta')">Editar</button></div>
       <div class="cc-dates">${cardDatesLabel(c).replace(/^ · /,'')||'Sin fechas de corte y pago'}</div>
+      ${cy?`<div class="cc-cycle">
+        <div class="cc-cyc-row">
+          <div><div class="cc-cyc-lbl">Facturado · corte ${shortDate(cy.cut)}</div>
+            <div class="cc-cyc-due${cy.overdue?' late':''}">${cy.owes&&cy.due?(cy.overdue?'Venció el '+shortDate(cy.due):'Pagar hasta el '+shortDate(cy.due)+' · '+inDays(daysUntil(cy.due))):'✓ Pagado'}</div></div>
+          <div class="cc-cyc-amt">${twoCur(cy.billed)||'S/ 0.00'}</div>
+        </div>
+        <div class="cc-cyc-row soft">
+          <div><div class="cc-cyc-lbl">Por facturar · cierra ${shortDate(cy.nextCut)}</div></div>
+          <div class="cc-cyc-amt">${twoCur(cy.pending)||'S/ 0.00'}</div>
+        </div>
+      </div>`:''}
       <div class="cc-limit-row">
-        <div class="cc-used">S/ ${totalUsedPEN.toFixed(2)}</div>
+        <div class="cc-used"${cy?' style="font-size:15px"':''}>${cy?'<span style="font-size:10px;opacity:0.55;font-family:Syne,sans-serif;margin-right:6px">DEUDA TOTAL</span>':''}S/ ${totalUsedPEN.toFixed(2)}</div>
         <div class="cc-limit">${limit>0?'/ S/ '+limit.toFixed(2):'sin límite'}</div>
       </div>
       <div class="cc-bar-track"><div class="cc-bar-fill${pct>80?' danger':''}" style="width:${limit>0?pct:0}%"></div></div>
@@ -991,14 +1067,8 @@ function renderCC(){
       </div>`:''}
       <div class="cc-drawer">${payRow('PEN','S/')}${payRow('USD','US$')}</div>
     </div>
-    <div class="card-title" style="margin:4px 2px 8px">Movimientos de ${esc(monthLabel(viewDate))} · ${movs.length}</div>
-    ${movs.length?movs.map(([t,isP])=>`
-      <div class="tx-item">
-        <div class="tx-icon ${isP?'gasto':'tarjeta'}">${isP?'🔁':'💳'}</div>
-        <div class="tx-info" onclick="openTxModal(${t.id})"><div class="tx-desc">${esc(t.desc)}</div><div class="tx-meta">${isP?'Pago desde '+esc(t.method||''):esc(t.cat||'')} · ${new Date(t.date+'T12:00').toLocaleDateString('es-PE',{day:'numeric',month:'short'})}</div></div>
-        <div class="tx-right"><div class="tx-amt ${isP?'ingreso':'tarjeta'}">${isP?'+':'−'} ${fmtOrig(t.amt,t.cur)}</div>${t.cur!==displayCur?`<div class="tx-sub">≈ ${fmt(toDisplay(t.amt,t.cur))}</div>`:''}</div>
-        <button class="tx-del" onclick="deleteTx(${t.id})">×</button>
-      </div>`).join(''):'<div class="empty">Sin movimientos este mes</div>'}`;
+    ${sections.map(([title,l])=>`<div class="card-title" style="margin:12px 2px 8px">${esc(title)} · ${l.length}</div>
+      ${l.length?l.map(movRow).join(''):'<div class="empty" style="padding:1rem 0">Sin movimientos</div>'}`).join('')}`;
 }
 
 // ─── BUDGET ───
@@ -1893,6 +1963,15 @@ function confirmAllInbox(){
   });
   saveSyncState(); save(); render(); toast(`✓ ${n} movimiento${n>1?'s':''} registrado${n>1?'s':''}`);
 }
+// Los descartados vuelven a la bandeja (los de cuentas ajenas no, porque se filtran solos)
+function restoreDiscarded(){
+  const n=(load('fp_seen',[])||[]).length;
+  if(!n){toast('No hay movimientos descartados');return}
+  if(!confirm(`¿Devolver ${n} movimiento(s) descartados a Por revisar? Podrás confirmarlos o descartarlos de nuevo.`)) return;
+  localStorage.removeItem('fp_seen');
+  scheduleCloudBackup();
+  syncNow(true).then(()=>{renderSyncConfig();switchTab('dash')});
+}
 function discardInbox(id){
   const seen=load('fp_seen',[]);
   seen.push(id);
@@ -1918,6 +1997,10 @@ function renderSyncConfig(){
     <div class="cfg-row">
       <div><div class="cfg-lbl">Reasignar movimientos del correo</div><div class="cfg-sub">Después de cambiar una asignación: mueve lo ya confirmado a su cuenta correcta</div></div>
       <button class="cfg-btn" onclick="reassignFromEmail()">Reasignar</button>
+    </div>
+    <div class="cfg-row">
+      <div><div class="cfg-lbl">Recuperar descartados</div><div class="cfg-sub">${(load('fp_seen',[])||[]).length} movimiento(s) del correo descartados: vuelven a Por revisar</div></div>
+      <button class="cfg-btn" onclick="restoreDiscarded()">Recuperar</button>
     </div>
     <div class="cfg-row">
       <div><div class="cfg-lbl">Restaurar desde la nube</div><div class="cfg-sub">Para un celular nuevo: trae tu última copia automática</div></div>
@@ -2245,6 +2328,8 @@ function openAccEdit(name,kind,bank){
       aeField('Nombre',`<input id="ae-name" value="${esc(c.name)}" maxlength="30" placeholder="Ej: Visa Platinum BCP"/>`)+
       `<div class="row2">${aeField('Banco',bankSelect(c.bank))}${aeField('Nº de T. crédito',`<input id="ae-number" value="${esc(c.number||'')}" inputmode="numeric" placeholder="Últimos 4"/>`)}</div>`+
       aeField('Límite de crédito (S/)',`<input id="ae-limit" type="number" min="0" step="0.01" inputmode="decimal" value="${c.limitPEN||''}"/>`)+
+      `<div class="row2">${aeField('Deuda inicial S/',`<input id="ae-init-pen" type="number" min="0" step="0.01" inputmode="decimal" value="${(c.initDebt||{}).PEN||''}" placeholder="0.00"/>`)}${aeField('Deuda inicial US$',`<input id="ae-init-usd" type="number" min="0" step="0.01" inputmode="decimal" value="${(c.initDebt||{}).USD||''}" placeholder="0.00"/>`)}</div>`+
+      `<div class="ae-hint" style="margin-top:-4px">Lo que debías en la tarjeta antes de tu primer movimiento registrado (el monto de tu último estado de cuenta antes de empezar).</div>`+
       `<div class="row2">${aeField('Día de corte',`<input id="ae-cycle" type="number" min="1" max="31" inputmode="numeric" value="${esc(c.cycle||'')}" placeholder="Facturación"/>`)}${aeField('Día de pago',`<input id="ae-payday" type="number" min="1" max="31" inputmode="numeric" value="${esc(c.payDay||'')}"/>`)}</div>`+
       aeField('Otros números (opcional)',`<input id="ae-extra" value="${esc((c.extra||[]).join(', '))}" placeholder="Ej: tarjeta adicional"/>`)+
       `<button class="btn-add" onclick="saveAccEdit()">Guardar</button>`+
@@ -2291,7 +2376,8 @@ function saveAccEdit(){
     if(!c){c={name,limitPEN:0};cards.push(c)}
     claim([number,...extra]);
     const day=v=>{const n=parseInt(v);return n>=1&&n<=31?String(n):''};
-    Object.assign(c,{bank,number,extra,limitPEN:parseFloat(aeVal('ae-limit'))||0,cycle:day(aeVal('ae-cycle')),payDay:day(aeVal('ae-payday'))});
+    Object.assign(c,{bank,number,extra,limitPEN:parseFloat(aeVal('ae-limit'))||0,cycle:day(aeVal('ae-cycle')),payDay:day(aeVal('ae-payday')),
+      initDebt:{PEN:parseFloat(aeVal('ae-init-pen'))||0,USD:parseFloat(aeVal('ae-init-usd'))||0}});
   }
   closeAccEdit();
   afterBankChange('✓ Guardado');
@@ -2547,7 +2633,7 @@ if('serviceWorker' in navigator && location.protocol!=='file:'){
 }
 // ─── ACTUALIZACIONES ───
 // Compara con la versión publicada; si hay una más nueva, muestra un aviso para cargarla
-const APP_VERSION=17;
+const APP_VERSION=18;
 async function checkUpdate(manual){
   if(location.protocol==='file:') return;
   try{
