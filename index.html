@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, viewport-fit=cover">
 <title>Mis Finanzas</title>
 <meta name="description" content="Finanzas personales en soles y dólares">
 <meta name="theme-color" content="#EFEFEB">
@@ -529,7 +529,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
       <button class="danger-btn" style="margin-bottom:8px" onclick="freshStart()">Empezar de cero desde hoy</button>
       <div style="font-size:10px;color:var(--text3);margin:-2px 2px 12px">Borra todos los movimientos y saldos iniciales, pero conserva tus bancos, cuentas, tarjetas, categorías y presupuestos. Después pones el saldo de cada cuenta y la deuda de cada tarjeta, y desde ese momento todo se suma solo.</div>
       <button class="danger-btn" onclick="clearAll()">Borrar todos los datos</button>
-      <div style="text-align:center;font-size:10px;color:var(--text3);margin-top:14px">finanzas pe · versión 22 · <a href="#" onclick="checkUpdate(true);return false" style="color:inherit">buscar actualización</a></div>
+      <div style="text-align:center;font-size:10px;color:var(--text3);margin-top:14px">finanzas pe · versión 23 · <a href="#" onclick="checkUpdate(true);return false" style="color:inherit">buscar actualización</a></div>
     </div>
   </div>
 
@@ -1614,6 +1614,11 @@ function exportCSV(){
 // Una compra "inicial" es una posición que ya tenías: cuenta como aporte y compra a la vez.
 let INV=load('fp_inv',null)||{plats:[],ops:[],prices:{}};
 INV.plats=INV.plats||[]; INV.ops=INV.ops||[]; INV.prices=INV.prices||{}; INV.hist=INV.hist||{}; // hist: 'VOO@2026-09-16' → cierre de ese día
+// Una plataforma con "valor actual" y sin compras con ticker es un fondo (si quedó como acciones, ese valor se ignoraba)
+INV.plats.forEach(p=>{
+  const ops=INV.ops.filter(o=>o.plat===p.name);
+  if(p.kind!=='fondo'&&ops.some(o=>o.type==='valor')&&!ops.some(o=>o.type==='compra'||o.type==='venta')) p.kind='fondo';
+});
 const INV_TYPES={aporte:'Aporte',compra:'Compra',venta:'Venta',dividendo:'Dividendo',retiro:'Retiro',comision:'Comisión',valor:'Valor actual'};
 function saveInv(){try{localStorage.setItem('fp_inv',JSON.stringify(INV))}catch(e){}scheduleCloudBackup()}
 const usd=v=>(v<0?'−':'')+'US$ '+Math.abs(v).toLocaleString('es-PE',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -1771,16 +1776,18 @@ function openInvPlat(name){
   document.getElementById('ae-title').textContent=name?'Editar plataforma':'Nueva plataforma';
   document.getElementById('ae-body').innerHTML=
     aeField('Nombre',`<input id="ae-name" value="${esc(p.name)}" maxlength="30" placeholder="Ej: Tyba, Flip, XTB"/>`)+
-    aeField('Qué tienes ahí',`<select id="ae-kind"><option value="broker"${p.kind!=='fondo'?' selected':''}>Acciones y ETFs (con ticker)</option><option value="fondo"${p.kind==='fondo'?' selected':''}>Un fondo o portafolio sin ticker</option></select>`,
+    aeField('Qué tienes ahí',`<select id="ae-kind" onchange="document.getElementById('ae-proxy-row').style.display=this.value==='fondo'?'':'none'"><option value="broker"${p.kind!=='fondo'?' selected':''}>Acciones y ETFs (con ticker)</option><option value="fondo"${p.kind==='fondo'?' selected':''}>Un fondo o portafolio sin ticker</option></select>`,
       'Con ticker, los precios se actualizan solos. Un fondo (como el portafolio de Flip) lo actualizas tú con su valor actual.')+
-    aeField('Si es un fondo: sigue a (opcional)',`<input id="ae-proxy" value="${esc(p.proxy||'')}" placeholder="Ej: VOO para S&P 500" autocapitalize="characters" autocomplete="off"/>`,
-      'Un ETF que se mueva igual que el fondo. Con él, la app estima el valor de hoy entre tus actualizaciones.')+
+    `<div id="ae-proxy-row" style="display:${p.kind==='fondo'?'':'none'}">`+aeField('Sigue a (opcional)',`<input id="ae-proxy" value="${esc(p.proxy||'')}" placeholder="VOO" autocapitalize="characters" autocomplete="off"/>`,
+      'Solo el ticker de un ETF que se mueva igual que el fondo. Ej: <b>VOO</b> si sigue al S&amp;P 500. Con él, la app estima el valor de hoy entre tus actualizaciones.')+`</div>`+
     `<button class="btn-add" onclick="saveInvPlat()">Guardar</button>`+
     (name?`<button class="danger-btn" onclick="deleteInvPlat()">Eliminar plataforma</button>`:'');
   document.getElementById('ae-modal').classList.add('show');
 }
 function saveInvPlat(){
-  const name=aeVal('ae-name').trim(), old=_ae.name, kind=aeVal('ae-kind'), proxy=kind==='fondo'?aeVal('ae-proxy').trim().toUpperCase():'';
+  const name=aeVal('ae-name').trim(), old=_ae.name, kind=aeVal('ae-kind');
+  // Solo el ticker, aunque se escriba "VOO para S&P 500"
+  const proxy=kind==='fondo'?((aeVal('ae-proxy').trim().toUpperCase().split(/[\s,;]+/)[0]||'').match(/^[A-Z0-9.:\-]{1,20}$/)||[''])[0]:'';
   if(!name){toast('Ponle un nombre');return}
   if(INV.plats.some(p=>p.name===name&&p.name!==old)){toast('Ya existe');return}
   if(old){const p=INV.plats.find(x=>x.name===old);p.name=name;p.kind=kind;p.proxy=proxy;INV.ops.forEach(o=>{if(o.plat===old)o.plat=name})}
@@ -2999,7 +3006,7 @@ if('serviceWorker' in navigator && location.protocol!=='file:'){
 }
 // ─── ACTUALIZACIONES ───
 // Compara con la versión publicada; si hay una más nueva, muestra un aviso para cargarla
-const APP_VERSION=22;
+const APP_VERSION=23;
 async function checkUpdate(manual){
   if(location.protocol==='file:') return;
   try{
