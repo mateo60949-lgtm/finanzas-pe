@@ -503,8 +503,10 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
     </div>
     <div class="cfg-section">
       <div class="cfg-section-title">⚠️ Zona peligrosa</div>
+      <button class="danger-btn" style="margin-bottom:8px" onclick="freshStart()">Empezar de cero desde hoy</button>
+      <div style="font-size:10px;color:var(--text3);margin:-2px 2px 12px">Borra todos los movimientos y saldos iniciales, pero conserva tus bancos, cuentas, tarjetas, categorías y presupuestos. Después pones el saldo de cada cuenta y la deuda de cada tarjeta, y desde ese momento todo se suma solo.</div>
       <button class="danger-btn" onclick="clearAll()">Borrar todos los datos</button>
-      <div style="text-align:center;font-size:10px;color:var(--text3);margin-top:14px">finanzas pe · versión 19 · <a href="#" onclick="checkUpdate(true);return false" style="color:inherit">buscar actualización</a></div>
+      <div style="text-align:center;font-size:10px;color:var(--text3);margin-top:14px">finanzas pe · versión 20 · <a href="#" onclick="checkUpdate(true);return false" style="color:inherit">buscar actualización</a></div>
     </div>
   </div>
 
@@ -889,7 +891,13 @@ function cardTx(i){
   const charges=data.filter(t=>(t.type==='tarjeta'&&isMine(t))||((t.type==='gasto'||t.type==='extra')&&t.method===c.name));
   const pays=data.filter(t=>t.type==='pago'&&isMine(t));
   const init=c.initDebt||{};
-  [['PEN',init.PEN],['USD',init.USD]].forEach(([cur,amt])=>{if(amt>0) charges.push({date:'0000-00-00',amt:+amt,cur,init:true})});
+  [['PEN',init.PEN,init.billedPEN],['USD',init.USD,init.billedUSD]].forEach(([cur,total,billed])=>{
+    total=+total||0;
+    // Deudas iniciales antiguas (sin parte facturada indicada) se toman como ya facturadas
+    const b=billed==null?total:Math.min(+billed||0,total);
+    if(b>0) charges.push({date:'0000-00-00',amt:b,cur,init:true});
+    if(total-b>0) charges.push({date:init.date||'0000-00-00',amt:total-b,cur,init:true});
+  });
   return {charges,pays};
 }
 const sumCur=(list,cur)=>list.filter(t=>(t.cur==='USD'?'USD':'PEN')===cur).reduce((s,t)=>s+t.amt,0);
@@ -1611,6 +1619,7 @@ function saveSyncUrl(){
 function saveSyncDesde(v){
   if(!syncCfg) return;
   syncCfg.desde=v||'';
+  delete syncCfg.desdeTs;
   // Al mover la fecha hacia adelante, se quitan de la bandeja los anteriores (vuelven si la retrocedes)
   inbox=inbox.filter(m=>!syncCfg.desde||m.fecha>=syncCfg.desde);
   saveSyncState(); syncNow(false); renderDash(); toast('✓ Fecha guardada');
@@ -1635,6 +1644,7 @@ async function syncNow(manual){
     (j.movimientos||[]).forEach(m=>{
       if(!m.id||done.has(m.id)||pending.has(m.id)) return;
       if(syncCfg.desde&&m.fecha<syncCfg.desde) return;
+      if(syncCfg.desdeTs&&(m.fecha+' '+(m.hora||'00:00'))<=syncCfg.desdeTs) return;
       const r=resolveOutside(m);
       if(r){inbox.push(r); added++}
     });
@@ -2344,8 +2354,10 @@ function openAccEdit(name,kind,bank,pre){
       aeField('Nombre',`<input id="ae-name" value="${esc(c.name)}" maxlength="30" placeholder="Ej: Visa Platinum BCP"/>`)+
       `<div class="row2">${aeField('Banco',bankSelect(c.bank))}${aeField('Nº de T. crédito',`<input id="ae-number" value="${esc(c.number||'')}" inputmode="numeric" placeholder="Últimos 4"/>`)}</div>`+
       aeField('Límite de crédito (S/)',`<input id="ae-limit" type="number" min="0" step="0.01" inputmode="decimal" value="${c.limitPEN||''}"/>`)+
-      `<div class="row2">${aeField('Deuda inicial S/',`<input id="ae-init-pen" type="number" min="0" step="0.01" inputmode="decimal" value="${(c.initDebt||{}).PEN||''}" placeholder="0.00"/>`)}${aeField('Deuda inicial US$',`<input id="ae-init-usd" type="number" min="0" step="0.01" inputmode="decimal" value="${(c.initDebt||{}).USD||''}" placeholder="0.00"/>`)}</div>`+
-      `<div class="ae-hint" style="margin-top:-4px">Lo que debías en la tarjeta antes de tu primer movimiento registrado (el monto de tu último estado de cuenta antes de empezar).</div>`+
+      `<div class="ae-lbl" style="margin-top:4px">Deuda al empezar a registrar</div>`+
+      `<div class="row2">${aeField('Deuda total S/',`<input id="ae-init-pen" type="number" min="0" step="0.01" inputmode="decimal" value="${(c.initDebt||{}).PEN||''}" placeholder="0.00"/>`)}${aeField('Deuda total US$',`<input id="ae-init-usd" type="number" min="0" step="0.01" inputmode="decimal" value="${(c.initDebt||{}).USD||''}" placeholder="0.00"/>`)}</div>`+
+      `<div class="row2">${aeField('De eso, facturado S/',`<input id="ae-billed-pen" type="number" min="0" step="0.01" inputmode="decimal" value="${(c.initDebt||{}).billedPEN??''}" placeholder="0.00"/>`)}${aeField('De eso, facturado US$',`<input id="ae-billed-usd" type="number" min="0" step="0.01" inputmode="decimal" value="${(c.initDebt||{}).billedUSD??''}" placeholder="0.00"/>`)}</div>`+
+      `<div class="ae-hint" style="margin-top:-4px">Copia lo que ves en la app del banco: la <b>deuda total</b> y el <b>pago del mes</b> (lo ya facturado que aún no pagas). Si ya pagaste el último estado de cuenta, el facturado es 0. Los movimientos que lleguen después se suman a esto.</div>`+
       `<div class="row2">${aeField('Día de corte',`<input id="ae-cycle" type="number" min="1" max="31" inputmode="numeric" value="${esc(c.cycle||'')}" placeholder="Facturación"/>`)}${aeField('Día de pago',`<input id="ae-payday" type="number" min="1" max="31" inputmode="numeric" value="${esc(c.payDay||'')}"/>`)}</div>`+
       aeField('Otros números (opcional)',`<input id="ae-extra" value="${esc((c.extra||[]).join(', '))}" placeholder="Ej: tarjeta adicional"/>`)+
       `<button class="btn-add" onclick="saveAccEdit()">Guardar</button>`+
@@ -2393,7 +2405,9 @@ function saveAccEdit(){
     claim([number,...extra]);
     const day=v=>{const n=parseInt(v);return n>=1&&n<=31?String(n):''};
     Object.assign(c,{bank,number,extra,limitPEN:parseFloat(aeVal('ae-limit'))||0,cycle:day(aeVal('ae-cycle')),payDay:day(aeVal('ae-payday')),
-      initDebt:{PEN:parseFloat(aeVal('ae-init-pen'))||0,USD:parseFloat(aeVal('ae-init-usd'))||0}});
+      initDebt:{PEN:parseFloat(aeVal('ae-init-pen'))||0,USD:parseFloat(aeVal('ae-init-usd'))||0,
+        billedPEN:parseFloat(aeVal('ae-billed-pen'))||0,billedUSD:parseFloat(aeVal('ae-billed-usd'))||0,
+        date:(c.initDebt&&c.initDebt.date)||(syncCfg&&syncCfg.desde)||todayStr()}});
   }
   closeAccEdit();
   afterBankChange('✓ Guardado');
@@ -2621,6 +2635,21 @@ function delCatE(i){
   if(!confirmDel(LABELS_E[c]||c,data.filter(t=>t.type==='extra'&&t.extraCat===c).length)) return;
   CATS_E.splice(i,1);save();updateCatSelect();renderConfig()
 }
+function freshStart(){
+  if(!confirm('¿Empezar de cero desde ahora?\n\n• Se borran TODOS los movimientos y la bandeja\n• Se borran los saldos iniciales y las deudas iniciales de tarjetas\n• Se conservan bancos, cuentas, tarjetas, categorías y presupuestos\n• Solo se importarán los correos que lleguen desde este momento\n\nLuego pon el saldo actual de cada cuenta (en Inicio) y la deuda de cada tarjeta (T. Crédito → Editar).')) return;
+  const now=new Date();
+  data=[]; inbox=[]; accountBalances={};
+  cards.forEach(c=>delete c.initDebt);
+  localStorage.removeItem('fp_seen');
+  if(syncCfg){
+    syncCfg.desde=todayStr(now);
+    syncCfg.desdeTs=todayStr(now)+' '+String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0');
+    syncCfg.misplaced=0;
+  }
+  save(); saveSyncState(); render(); renderConfig(); renderSyncConfig();
+  switchTab('dash');
+  alert('✓ Listo. Ahora:\n1. En Inicio, toca cada cuenta y pon su saldo actual.\n2. En T. Crédito, toca Editar en cada tarjeta y pon su deuda total y lo facturado.');
+}
 function clearAll(){
   if(!confirm('¿Seguro? Se borrarán TODOS los datos: movimientos, cuentas, tarjetas, presupuestos, categorías y tipo de cambio.')) return;
   Object.keys(localStorage).filter(k=>k.startsWith('fp_')).forEach(k=>localStorage.removeItem(k));
@@ -2649,7 +2678,7 @@ if('serviceWorker' in navigator && location.protocol!=='file:'){
 }
 // ─── ACTUALIZACIONES ───
 // Compara con la versión publicada; si hay una más nueva, muestra un aviso para cargarla
-const APP_VERSION=19;
+const APP_VERSION=20;
 async function checkUpdate(manual){
   if(location.protocol==='file:') return;
   try{
