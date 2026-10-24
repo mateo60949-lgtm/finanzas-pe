@@ -1,6 +1,6 @@
 // Service worker: guarda la app en el dispositivo para que abra sin internet.
 // Al publicar cambios en los archivos, sube el número de CACHE para que los teléfonos descarguen la versión nueva.
-const CACHE = 'finanzas-pe-v14';
+const CACHE = 'finanzas-pe-v15';
 const ASSETS = ['./', './index.html', './manifest.webmanifest', './icon.svg', './icon-180.png', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
@@ -27,7 +27,8 @@ self.addEventListener('fetch', e => {
   // La página: primero la red (para recibir actualizaciones), si no hay internet la copia guardada
   if (req.mode === 'navigate') {
     e.respondWith(
-      fetch(req)
+      // no-store: sin esto el navegador reusa la página hasta 10 min (caché de GitHub Pages) y no llegan las actualizaciones
+      fetch(req, { cache: 'no-store' })
         .then(res => { const copy = res.clone(); caches.open(CACHE).then(c => c.put('./index.html', copy)); return res; })
         .catch(() => caches.match('./index.html'))
     );

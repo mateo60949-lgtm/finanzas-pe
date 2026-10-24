@@ -476,7 +476,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
     <div class="cfg-section">
       <div class="cfg-section-title">⚠️ Zona peligrosa</div>
       <button class="danger-btn" onclick="clearAll()">Borrar todos los datos</button>
-      <div style="text-align:center;font-size:10px;color:var(--text3);margin-top:14px">finanzas pe · versión 14</div>
+      <div style="text-align:center;font-size:10px;color:var(--text3);margin-top:14px">finanzas pe · versión 15 · <a href="#" onclick="checkUpdate(true);return false" style="color:inherit">buscar actualización</a></div>
     </div>
   </div>
 
@@ -2516,8 +2516,39 @@ document.getElementById('f-date').value=todayStr();
 updateCatSelect(); renderQuick(); render();
 initSync();
 if('serviceWorker' in navigator && location.protocol!=='file:'){
-  navigator.serviceWorker.register('sw.js').catch(()=>{});
+  navigator.serviceWorker.register('sw.js',{updateViaCache:'none'}).catch(()=>{});
 }
+// ─── ACTUALIZACIONES ───
+// Compara con la versión publicada; si hay una más nueva, muestra un aviso para cargarla
+const APP_VERSION=15;
+async function checkUpdate(manual){
+  if(location.protocol==='file:') return;
+  try{
+    const html=await (await fetch('./?v='+Date.now(),{cache:'no-store'})).text();
+    const n=parseInt((html.match(/versión (\d+)/)||[])[1]);
+    if(n>APP_VERSION) showUpdateBar(n);
+    else if(manual) toast('✓ Tienes la última versión ('+APP_VERSION+')');
+  }catch(e){if(manual) toast('Sin conexión')}
+}
+function showUpdateBar(n){
+  if(document.getElementById('update-bar')) return;
+  const d=document.createElement('div');
+  d.id='update-bar';
+  d.className='card';
+  d.style.cssText='display:flex;align-items:center;justify-content:space-between;gap:8px;border-color:var(--green);background:var(--green-bg);margin:10px 16px 0';
+  d.innerHTML=`<div style="font-size:12px;font-weight:600;color:var(--green)">✨ Hay una versión nueva (${n})</div><button class="cfg-btn" onclick="applyUpdate()">Actualizar</button>`;
+  document.getElementById('scroll-area').before(d);
+}
+async function applyUpdate(){
+  try{
+    const reg=navigator.serviceWorker&&await navigator.serviceWorker.getRegistration();
+    if(reg) await reg.update();
+    if(window.caches) await Promise.all((await caches.keys()).map(k=>caches.delete(k)));
+  }catch(e){}
+  location.reload();
+}
+checkUpdate(false);
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible') checkUpdate(false)});
 </script>
 </body>
 </html>
