@@ -286,6 +286,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 .inv-tk{font-size:12px;font-weight:700}
 .inv-val{font-family:'DM Mono',monospace;font-size:14px;font-weight:500}
 .inv-gain{font-family:'DM Mono',monospace;font-size:10px;color:var(--text3);margin-top:2px}
+.inv-est{font-size:9px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;color:var(--amber);background:var(--amber-bg);border-radius:8px;padding:2px 6px;vertical-align:2px}
 .inv-up{color:var(--green)}.inv-down{color:var(--red)}
 .inv-ops{margin-top:8px;border-top:0.5px solid var(--border);padding-top:8px}
 .inv-ops summary{font-size:11px;color:var(--text2);cursor:pointer}
@@ -528,7 +529,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
       <button class="danger-btn" style="margin-bottom:8px" onclick="freshStart()">Empezar de cero desde hoy</button>
       <div style="font-size:10px;color:var(--text3);margin:-2px 2px 12px">Borra todos los movimientos y saldos iniciales, pero conserva tus bancos, cuentas, tarjetas, categorías y presupuestos. Después pones el saldo de cada cuenta y la deuda de cada tarjeta, y desde ese momento todo se suma solo.</div>
       <button class="danger-btn" onclick="clearAll()">Borrar todos los datos</button>
-      <div style="text-align:center;font-size:10px;color:var(--text3);margin-top:14px">finanzas pe · versión 21 · <a href="#" onclick="checkUpdate(true);return false" style="color:inherit">buscar actualización</a></div>
+      <div style="text-align:center;font-size:10px;color:var(--text3);margin-top:14px">finanzas pe · versión 22 · <a href="#" onclick="checkUpdate(true);return false" style="color:inherit">buscar actualización</a></div>
     </div>
   </div>
 
@@ -1612,7 +1613,7 @@ function exportCSV(){
 // Todo en US$. Tipos: aporte, retiro, compra, venta, dividendo, comision, valor (valor actual de un fondo sin ticker).
 // Una compra "inicial" es una posición que ya tenías: cuenta como aporte y compra a la vez.
 let INV=load('fp_inv',null)||{plats:[],ops:[],prices:{}};
-INV.plats=INV.plats||[]; INV.ops=INV.ops||[]; INV.prices=INV.prices||{};
+INV.plats=INV.plats||[]; INV.ops=INV.ops||[]; INV.prices=INV.prices||{}; INV.hist=INV.hist||{}; // hist: 'VOO@2026-09-16' → cierre de ese día
 const INV_TYPES={aporte:'Aporte',compra:'Compra',venta:'Venta',dividendo:'Dividendo',retiro:'Retiro',comision:'Comisión',valor:'Valor actual'};
 function saveInv(){try{localStorage.setItem('fp_inv',JSON.stringify(INV))}catch(e){}scheduleCloudBackup()}
 const usd=v=>(v<0?'−':'')+'US$ '+Math.abs(v).toLocaleString('es-PE',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -1660,12 +1661,24 @@ function invCalc(plat){
     const pr=invPrice(t), value=pr?h.units*pr.p:h.cost;
     return {t,units:h.units,cost:h.cost,price:pr,value,gain:value-h.cost,pct:h.cost?(value-h.cost)/h.cost:0};
   }).sort((a,b)=>b.value-a.value);
-  let value;
-  if(p.kind==='fondo') value=fundVal!=null?fundVal+0:aport-retir;
+  let value, est=null;
+  if(p.kind==='fondo'){
+    // Lo que entró o salió después del último valor real también cuenta
+    const after=ops.filter(o=>(o.type==='aporte'||o.type==='retiro')&&(!fundAt||o.date>fundAt));
+    value=(fundVal!=null?fundVal:0)+after.reduce((s,o)=>s+(o.type==='aporte'?1:-1)*(+o.amount||0),0);
+    // Fondo que sigue a un índice: cada parte crece como el ETF de referencia desde su fecha
+    const now=p.proxy&&invPrice(p.proxy);
+    if(now){
+      const grow=(amt,date)=>{const h=INV.hist[p.proxy+'@'+date];return h?amt*now.p/h:null};
+      let tot=fundVal!=null?grow(fundVal,fundAt):0;
+      after.forEach(o=>{const g=grow(+o.amount||0,o.date);tot=tot==null||g==null?null:tot+(o.type==='aporte'?g:-g)});
+      if(tot!=null&&(fundVal!=null||after.length)){est=tot;value=tot}
+    }
+  }
   else value=positions.reduce((s,x)=>s+x.value,0)+cash;
   const net=aport-retir, gain=value-net;
   const irr=value>0?xirr([...flows,{d:new Date(),v:value}]):null;
-  return {plat,kind:p.kind,ops,cash,aport,retir,net,div,fees,realized,positions,value,gain,pct:aport?gain/aport:0,irr,fundAt,
+  return {plat,kind:p.kind,proxy:p.proxy||'',est,fundVal,ops,cash,aport,retir,net,div,fees,realized,positions,value,gain,pct:aport?gain/aport:0,irr,fundAt,
     missingPrices:positions.filter(x=>!x.price).map(x=>x.t)};
 }
 function invTotals(){
@@ -1676,7 +1689,18 @@ function invTotals(){
     if(o.type==='aporte'||(o.type==='compra'&&o.initial)) flows.push({d,v:-a}); else if(o.type==='retiro') flows.push({d,v:a})});
   return {all,value,aport,net,gain:value-net,pct:aport?(value-net)/aport:0,irr:value>0?xirr([...flows,{d:new Date(),v:value}]):null};
 }
-function invTickers(){return [...new Set(INV.ops.filter(o=>o.ticker).map(o=>o.ticker.toUpperCase()))]}
+function invTickers(){return [...new Set([...INV.ops.filter(o=>o.ticker).map(o=>o.ticker.toUpperCase()),...INV.plats.filter(p=>p.kind==='fondo'&&p.proxy).map(p=>p.proxy)])]}
+// Cierres pasados que hacen falta para estimar los fondos con índice de referencia
+function invHistNeeded(){
+  const keys=[];
+  INV.plats.filter(p=>p.kind==='fondo'&&p.proxy).forEach(p=>{
+    const ops=INV.ops.filter(o=>o.plat===p.name), vals=ops.filter(o=>o.type==='valor').sort((a,b)=>a.date.localeCompare(b.date));
+    const at=vals.length?vals[vals.length-1].date:null;
+    if(at) keys.push(p.proxy+'@'+at);
+    ops.filter(o=>(o.type==='aporte'||o.type==='retiro')&&(!at||o.date>at)).forEach(o=>keys.push(p.proxy+'@'+o.date));
+  });
+  return [...new Set(keys)].filter(k=>!INV.hist[k]);
+}
 
 const INV_COLORS=['#2A5FD4','#1A8C65','#B06C10','#C94A28','#7A4FC9','#0E8FA6'];
 function renderInv(){
@@ -1713,12 +1737,14 @@ function renderInv(){
 }
 function invPlatHtml(x){
   const head=`<div class="inv-plat-head" onclick="openInvPlat(${jsArg(x.plat)})">
-      <div><div class="cfg-lbl">${esc(x.plat)}</div><div class="cfg-sub">${x.kind==='fondo'?'Fondo':'Acciones y ETFs'} · aportado ${usd(x.net)}</div></div>
+      <div><div class="cfg-lbl">${esc(x.plat)}${x.est!=null?' <span class="inv-est">estimado</span>':''}</div><div class="cfg-sub">${x.kind==='fondo'?'Fondo':'Acciones y ETFs'} · aportado ${usd(x.net)}</div></div>
       <div style="text-align:right"><div class="inv-val">${usd(x.value)}</div><div class="inv-gain ${gainCls(x.gain)}">${x.gain>=0?'+':''}${usd(x.gain)} · ${pctTxt(x.pct)}</div></div>
     </div>`;
   let body='';
   if(x.kind==='fondo'){
-    body=`<div class="inv-row"><div><div class="inv-tk">Valor actual</div><div class="cfg-sub">${x.fundAt?'Actualizado al '+shortDate(new Date(x.fundAt+'T12:00')):'Aún no pones el valor actual'}</div></div>
+    body=(x.est!=null?`<div class="inv-row"><div><div class="inv-tk">Valor estimado hoy</div><div class="cfg-sub">Sigue a ${esc(x.proxy)}${x.fundAt&&INV.hist[x.proxy+'@'+x.fundAt]&&invPrice(x.proxy)?' · '+pctTxt(invPrice(x.proxy).p/INV.hist[x.proxy+'@'+x.fundAt]-1)+' desde el '+shortDate(new Date(x.fundAt+'T12:00')):''}</div></div>
+        <div class="inv-val" style="font-size:12px">${usd(x.est)}</div></div>`:'')+
+      `<div class="inv-row"><div><div class="inv-tk">${x.est!=null?'Último valor real':'Valor actual'}</div><div class="cfg-sub">${x.fundAt?'US$ '+(+x.fundVal).toFixed(2)+' al '+shortDate(new Date(x.fundAt+'T12:00')):'Aún no pones el valor actual'}${x.proxy&&x.est==null?' · estimación con '+esc(x.proxy)+' pendiente':''}</div></div>
       <button class="cfg-btn" onclick="openInvOp(${jsArg(x.plat)},'valor')">Actualizar</button></div>`;
   } else {
     body=x.positions.map(p=>`<div class="inv-row" onclick="openInvPrice(${jsArg(p.t)})">
@@ -1747,17 +1773,20 @@ function openInvPlat(name){
     aeField('Nombre',`<input id="ae-name" value="${esc(p.name)}" maxlength="30" placeholder="Ej: Tyba, Flip, XTB"/>`)+
     aeField('Qué tienes ahí',`<select id="ae-kind"><option value="broker"${p.kind!=='fondo'?' selected':''}>Acciones y ETFs (con ticker)</option><option value="fondo"${p.kind==='fondo'?' selected':''}>Un fondo o portafolio sin ticker</option></select>`,
       'Con ticker, los precios se actualizan solos. Un fondo (como el portafolio de Flip) lo actualizas tú con su valor actual.')+
+    aeField('Si es un fondo: sigue a (opcional)',`<input id="ae-proxy" value="${esc(p.proxy||'')}" placeholder="Ej: VOO para S&P 500" autocapitalize="characters" autocomplete="off"/>`,
+      'Un ETF que se mueva igual que el fondo. Con él, la app estima el valor de hoy entre tus actualizaciones.')+
     `<button class="btn-add" onclick="saveInvPlat()">Guardar</button>`+
     (name?`<button class="danger-btn" onclick="deleteInvPlat()">Eliminar plataforma</button>`:'');
   document.getElementById('ae-modal').classList.add('show');
 }
 function saveInvPlat(){
-  const name=aeVal('ae-name').trim(), old=_ae.name, kind=aeVal('ae-kind');
+  const name=aeVal('ae-name').trim(), old=_ae.name, kind=aeVal('ae-kind'), proxy=kind==='fondo'?aeVal('ae-proxy').trim().toUpperCase():'';
   if(!name){toast('Ponle un nombre');return}
   if(INV.plats.some(p=>p.name===name&&p.name!==old)){toast('Ya existe');return}
-  if(old){const p=INV.plats.find(x=>x.name===old);p.name=name;p.kind=kind;INV.ops.forEach(o=>{if(o.plat===old)o.plat=name})}
-  else INV.plats.push({name,kind});
+  if(old){const p=INV.plats.find(x=>x.name===old);p.name=name;p.kind=kind;p.proxy=proxy;INV.ops.forEach(o=>{if(o.plat===old)o.plat=name})}
+  else INV.plats.push({name,kind,proxy});
   saveInv(); closeAccEdit(); renderInv(); renderDash(); toast('✓ Guardado');
+  if(proxy) refreshPrices(false);
 }
 function deleteInvPlat(){
   const n=INV.ops.filter(o=>o.plat===_ae.name).length;
@@ -1840,6 +1869,13 @@ async function refreshPrices(manual){
     if(!j.ok){if(manual)toast(j.error==='accion'?'Actualiza el script de Google para traer precios':'No se pudieron traer precios');return}
     const now=new Date().toISOString(); let n=0;
     Object.entries(j.precios||{}).forEach(([t,x])=>{if(x&&x.precio>0&&!(INV.prices[t]&&INV.prices[t].manual)){INV.prices[t]={p:x.precio,at:now};n++}});
+    const need=invHistNeeded();
+    if(need.length){
+      try{
+        const h=await (await fetch(ep.base+'?t='+encodeURIComponent(ep.token)+'&accion=historico&pares='+encodeURIComponent(need.join(',')),{cache:'no-store'})).json();
+        if(h.ok) Object.entries(h.cierres||{}).forEach(([k,v])=>{if(v>0) INV.hist[k]=v});
+      }catch(e){}
+    }
     saveInv(); renderInv(); renderDash();
     const missing=tks.filter(t=>!invPrice(t));
     if(manual) toast(missing.length?`✓ ${n} precios · faltan: ${missing.join(', ')} (reintenta en un minuto)`:`✓ ${n} precios actualizados`);
@@ -2963,7 +2999,7 @@ if('serviceWorker' in navigator && location.protocol!=='file:'){
 }
 // ─── ACTUALIZACIONES ───
 // Compara con la versión publicada; si hay una más nueva, muestra un aviso para cargarla
-const APP_VERSION=21;
+const APP_VERSION=22;
 async function checkUpdate(manual){
   if(location.protocol==='file:') return;
   try{

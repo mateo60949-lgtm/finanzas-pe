@@ -1,0 +1,68 @@
+{
+  "app": "finanzas-pe",
+  "tipo": "config",
+  "cuentas": [
+    {
+      "nombre": "BCP Corriente S/",
+      "claves": [
+        "BCP:4076",
+        "BCP:2984",
+        "BCP:yape"
+      ]
+    },
+    {
+      "nombre": "BCP Ahorros S/",
+      "claves": [
+        "BCP:2070",
+        "BCP:9466"
+      ]
+    },
+    {
+      "nombre": "BCP Ahorro US$",
+      "claves": [
+        "BCP:1138",
+        "BCP:0982"
+      ]
+    },
+    {
+      "nombre": "Scotiabank Digital S/",
+      "claves": [
+        "Scotiabank:2270",
+        "Scotiabank Peru:7008"
+      ]
+    },
+    {
+      "nombre": "BofA SafeBalance US$",
+      "claves": [
+        "Bank of America:6606"
+      ]
+    }
+  ],
+  "tarjetas": [
+    {
+      "nombre": "Visa Platinum BCP",
+      "claves": [
+        "BCP:4183"
+      ],
+      "corte": 25,
+      "pago": 20
+    },
+    {
+      "nombre": "Visa Gold Scotiabank",
+      "claves": [
+        "Scotiabank:8118"
+      ],
+      "corte": 18,
+      "pago": 15
+    }
+  ],
+  "ajenas": [
+    "BCP:9002",
+    "BCP:5126",
+    "Scotiabank:0635",
+    "Scotiabank:2884"
+  ],
+  "quitar": [
+    "Scotiabank Power US$"
+  ]
+}

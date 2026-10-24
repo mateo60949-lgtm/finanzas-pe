@@ -1,0 +1,22 @@
+{
+  "app": "finanzas-pe",
+  "tipo": "inversiones",
+  "plataformas": [
+    { "name": "Tyba", "kind": "broker" },
+    { "name": "Flip", "kind": "fondo" },
+    { "name": "XTB", "kind": "broker" }
+  ],
+  "operaciones": [
+    { "plat": "Tyba", "date": "2026-10-24", "type": "compra", "ticker": "VGK", "units": 2, "amount": 177.70, "initial": true },
+    { "plat": "Tyba", "date": "2026-10-24", "type": "compra", "ticker": "IEMG", "units": 2, "amount": 168.33, "initial": true },
+    { "plat": "Tyba", "date": "2026-10-24", "type": "compra", "ticker": "VGT", "units": 1, "amount": 115.14, "initial": true },
+    { "plat": "Tyba", "date": "2026-10-24", "type": "compra", "ticker": "NOK", "units": 3, "amount": 48.48, "initial": true },
+    { "plat": "Tyba", "date": "2026-10-24", "type": "aporte", "amount": 93.90 },
+
+    { "plat": "Flip", "date": "2025-08-24", "type": "aporte", "amount": 100 },
+    { "plat": "Flip", "date": "2025-09-11", "type": "aporte", "amount": 400 },
+    { "plat": "Flip", "date": "2026-03-16", "type": "aporte", "amount": 500 },
+    { "plat": "Flip", "date": "2026-04-29", "type": "aporte", "amount": 100 },
+    { "plat": "Flip", "date": "2026-09-16", "type": "valor", "amount": 1236.75 }
+  ]
+}

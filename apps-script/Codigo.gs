@@ -354,6 +354,9 @@ function formatoFecha_(d, patron) {
 
 function doGet(e) {
   if (!autorizado_(e.parameter.t)) return json_({ ok: false, error: 'token' });
+  if (e.parameter.accion === 'historico') {
+    return json_({ ok: true, cierres: historicos_(String(e.parameter.pares || '').split(',')) });
+  }
   if (e.parameter.accion === 'precios') {
     return json_({ ok: true, precios: precios_(String(e.parameter.tickers || '').split(',')) });
   }
@@ -416,6 +419,32 @@ function precios_(tickers) {
   filas.forEach(f => {
     const t = String(f[0]).toUpperCase();
     if (pedidos.includes(t)) out[t] = typeof f[1] === 'number' && f[1] > 0 ? { precio: f[1], moneda: f[2], nombre: f[3] } : null;
+  });
+  return out;
+}
+
+// Precio de cierre de un ticker en una fecha pasada (el último cierre hasta ese día), con GOOGLEFINANCE.
+// Se usa para estimar fondos que siguen a un índice (ej: un portafolio que replica el S&P 500 → VOO).
+function historicos_(pares) {
+  const h = hoja_('Historico', ['Clave', 'Cierre']);
+  const pedidos = [...new Set(pares.map(x => String(x).trim().toUpperCase()).filter(x => /^[A-Z0-9.:\-]{1,20}@\d{4}-\d{2}-\d{2}$/.test(x)))];
+  const n = h.getLastRow() - 1;
+  const existentes = n > 0 ? h.getRange(2, 1, n, 1).getValues().map(r => String(r[0]).toUpperCase()) : [];
+  const nuevos = pedidos.filter(k => !existentes.includes(k));
+  if (nuevos.length) {
+    const fila = h.getLastRow() + 1;
+    h.getRange(fila, 1, nuevos.length, 2).setFormulas(nuevos.map(k => {
+      const [t, f] = k.split('@'), [y, m, d] = f.split('-').map(Number);
+      const rango = 'GOOGLEFINANCE("' + t + '","close",DATE(' + y + ',' + m + ',' + d + ')-7,DATE(' + y + ',' + m + ',' + d + ')+1)';
+      return ['="' + k + '"', '=IFERROR(INDEX(' + rango + ',ROWS(' + rango + '),2),"")'];
+    }));
+    SpreadsheetApp.flush();
+  }
+  const m = h.getLastRow() - 1;
+  const out = {};
+  (m > 0 ? h.getRange(2, 1, m, 2).getValues() : []).forEach(f => {
+    const k = String(f[0]).toUpperCase();
+    if (pedidos.includes(k)) out[k] = typeof f[1] === 'number' && f[1] > 0 ? f[1] : null;
   });
   return out;
 }
