@@ -69,6 +69,16 @@ function verEnlace() {
     '\n\nQueda así: https://script.google.com/macros/s/…/exec?t=' + token);
 }
 
+/**
+ * Cambia el código secreto (token) del enlace. Úsalo si el enlace se compartió por error:
+ * el enlace anterior deja de funcionar al instante. Luego pega el enlace nuevo en la app.
+ */
+function cambiarToken() {
+  PropertiesService.getScriptProperties().setProperty('TOKEN', Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '').slice(0, 8));
+  Logger.log('✓ Token cambiado. El enlace anterior ya no funciona.');
+  verEnlace();
+}
+
 /** Vuelve a leer todo desde cero (por ejemplo, tras mejorar una regla). Borra lo leído, no el respaldo. */
 function releerTodo() {
   [CONFIG.HOJA_MOV, CONFIG.HOJA_REV].forEach(n => {
