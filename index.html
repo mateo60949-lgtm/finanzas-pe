@@ -107,6 +107,14 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 .budget-cat{font-size:12px;font-weight:600}
 .budget-nums{font-family:'DM Mono',monospace;font-size:10px;color:var(--text2);display:flex;align-items:center;gap:4px}
 .budget-over{color:var(--red)}
+.budget-sub{display:flex;justify-content:space-between;align-items:center;font-size:10px;color:var(--text3);margin-top:5px}
+.budget-sub label{display:flex;align-items:center;gap:4px}
+.budget-bar-fill.share{background:var(--text3)}
+.bgt-idle{opacity:0.55}
+.bgt-mini{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px;padding-top:10px;border-top:0.5px solid var(--border)}
+.bgt-mini div{display:flex;flex-direction:column;gap:2px}
+.bgt-mini span{font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:0.05em}
+.bgt-mini b{font-family:'DM Mono',monospace;font-size:13px;font-weight:500}
 .budget-bar-track{height:5px;background:var(--surface2);border-radius:3px;overflow:hidden}
 .budget-bar-fill{height:100%;border-radius:3px;background:var(--green);transition:width 0.4s}
 .budget-bar-fill.warn{background:var(--amber)}.budget-bar-fill.over{background:var(--red)}
@@ -381,11 +389,6 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
   </div>
 
   <!-- RESUMEN -->
-  <div id="sec-resumen" class="sec">
-    <div class="card"><div class="card-title">Gastos por categoría</div><div id="bars-gasto"></div></div>
-    <div class="card"><div class="card-title">Gastos extraordinarios</div><div id="bars-extra"></div></div>
-    <div class="card"><div class="card-title">Ingresos por categoría</div><div id="bars-ingreso"></div></div>
-  </div>
 
   <!-- TARJETA -->
   <div id="sec-tarjeta" class="sec">
@@ -395,21 +398,23 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 
   <!-- PRESUPUESTO -->
   <div id="sec-budget" class="sec">
+    <div class="card" id="bgt-summary"></div>
     <div class="card">
       <div class="card-title" style="margin-bottom:0;display:flex;justify-content:space-between;align-items:center">
-        <span>Presupuesto mensual</span>
+        <span>Gastos por categoría</span>
         <div class="cur-toggle" style="margin-bottom:0">
           <button class="cur-btn active" id="bbtn-pen" onclick="setBudgetCur('PEN')" style="padding:3px 10px;font-size:10px">S/</button>
           <button class="cur-btn" id="bbtn-usd" onclick="setBudgetCur('USD')" style="padding:3px 10px;font-size:10px">US$</button>
         </div>
       </div>
-      <div style="margin:10px 0 4px;font-size:10px;color:var(--text3)">Escribe el presupuesto de cada categoría y presiona Enter o toca fuera</div>
+      <div style="margin:8px 0 2px;font-size:10px;color:var(--text3)">Escribe el presupuesto de cada categoría; se guarda solo.</div>
       <div id="budget-list"></div>
     </div>
     <div class="card">
       <div class="card-title">Gastos extraordinarios del mes</div>
       <div id="extra-budget-list"></div>
     </div>
+    <div class="card"><div class="card-title">Ingresos por categoría</div><div id="bars-ingreso"></div></div>
   </div>
 
   <!-- CONFIG -->
@@ -491,7 +496,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
     <div class="cfg-section">
       <div class="cfg-section-title">⚠️ Zona peligrosa</div>
       <button class="danger-btn" onclick="clearAll()">Borrar todos los datos</button>
-      <div style="text-align:center;font-size:10px;color:var(--text3);margin-top:14px">finanzas pe · versión 16 · <a href="#" onclick="checkUpdate(true);return false" style="color:inherit">buscar actualización</a></div>
+      <div style="text-align:center;font-size:10px;color:var(--text3);margin-top:14px">finanzas pe · versión 17 · <a href="#" onclick="checkUpdate(true);return false" style="color:inherit">buscar actualización</a></div>
     </div>
   </div>
 
@@ -504,9 +509,6 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
   </button>
   <button class="bnav-btn" id="nav-add" onclick="switchTab('add')">
     <span class="ico">＋</span>Movimientos
-  </button>
-  <button class="bnav-btn" id="nav-resumen" onclick="switchTab('resumen')">
-    <span class="ico">≡</span>Resumen
   </button>
   <button class="bnav-btn" id="nav-tarjeta" onclick="switchTab('tarjeta')">
     <span class="ico">▭</span>T. Crédito
@@ -1003,29 +1005,56 @@ function renderCC(){
 function renderBudget() {
   const md=getMonthData();
   const sym=budgetCur==='PEN'?'S/ ':'US$ ';
-  const el=document.getElementById('budget-list');
-  el.innerHTML=CATS_G.map(cat=>{
-    const spent=md.filter(t=>(t.type==='gasto'||t.type==='tarjeta')&&t.cat===cat)
-      .reduce((s,t)=>s+(budgetCur==='PEN'?toPEN(t.amt,t.cur):toUSD(t.amt,t.cur)),0);
-    const bgt=(budgets[cat]||{})[budgetCur]||0;
+  const conv=t=>budgetCur==='PEN'?toPEN(t.amt,t.cur):toUSD(t.amt,t.cur);
+  const money=v=>sym+Math.round(v).toLocaleString('es-PE');
+  // Gastado por categoría (sin transferencias entre tus cuentas)
+  const spentBy={};
+  md.filter(t=>(t.type==='gasto'||t.type==='tarjeta')&&!t.isTransfer).forEach(t=>{const c=t.cat||'Otros';spentBy[c]=(spentBy[c]||0)+conv(t)});
+  const totalSpent=Object.values(spentBy).reduce((s,v)=>s+v,0);
+  const bgtOf=c=>(budgets[c]||{})[budgetCur]||0;
+  const totalBgt=CATS_G.reduce((s,c)=>s+bgtOf(c),0);
+  const extra=md.filter(t=>t.type==='extra').reduce((s,t)=>s+conv(t),0);
+  const income=md.filter(t=>t.type==='ingreso'&&!t.isTransfer).reduce((s,t)=>s+conv(t),0);
+
+  // Resumen del mes
+  // La barra compara solo las categorías que tienen presupuesto, para no mezclar con las que no lo tienen
+  const bgtSpent=CATS_G.filter(c=>bgtOf(c)>0).reduce((s,c)=>s+(spentBy[c]||0),0);
+  const tPct=totalBgt?bgtSpent/totalBgt*100:0;
+  document.getElementById('bgt-summary').innerHTML=`
+    <div class="card-title" style="margin-bottom:6px">Resumen de ${esc(monthLabel(viewDate))}</div>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
+      <div style="font-family:'DM Mono',monospace;font-size:20px;font-weight:500">${money(totalSpent)}</div>
+      <div style="font-size:10px;color:var(--text3)">gastado en total</div>
+    </div>
+    ${totalBgt?`<div class="budget-sub" style="margin:2px 0 5px"><span>Con presupuesto: ${money(bgtSpent)} de ${money(totalBgt)}</span><span>${Math.round(tPct)}%</span></div>
+    <div class="budget-bar-track"><div class="budget-bar-fill${tPct>100?' over':tPct>75?' warn':''}" style="width:${Math.min(tPct,100)}%"></div></div>
+    <div class="budget-sub"><span>${tPct>100?'<span style="color:var(--red)">Te pasaste '+money(bgtSpent-totalBgt)+'</span>':'Te quedan '+money(totalBgt-bgtSpent)}</span></div>`
+    :`<div class="budget-sub"><span>Aún no tienes presupuestos: escríbelos abajo, en cada categoría</span></div>`}
+    <div class="bgt-mini">
+      <div><span>Ingresos</span><b style="color:var(--green)">${money(income)}</b></div>
+      <div><span>Extraordinarios</span><b style="color:var(--amber)">${money(extra)}</b></div>
+    </div>`;
+
+  // Categorías: primero las que tienen gasto (de mayor a menor), luego las demás para poder fijarles presupuesto
+  const cats=[...new Set([...CATS_G,...Object.keys(spentBy)])]
+    .sort((a,b)=>(spentBy[b]||0)-(spentBy[a]||0)||((bgtOf(b)?1:0)-(bgtOf(a)?1:0)));
+  document.getElementById('budget-list').innerHTML=cats.map(cat=>{
+    const spent=spentBy[cat]||0, bgt=bgtOf(cat);
+    const share=totalSpent?spent/totalSpent*100:0;
     const rawPct=bgt?spent/bgt*100:0;
-    const pct=Math.min(rawPct,100);
-    const warn=rawPct>75&&rawPct<=100, over=rawPct>100;
-    return `<div class="budget-item">
+    const over=rawPct>100, warn=rawPct>75&&!over;
+    const editable=CATS_G.includes(cat);
+    const status=bgt?(over?`<span style="color:var(--red)">Te pasaste ${money(spent-bgt)}</span>`:`Quedan ${money(bgt-spent)}`):'Sin presupuesto';
+    return `<div class="budget-item${!spent&&!bgt?' bgt-idle':''}">
       <div class="budget-row">
         <div class="budget-cat">${ICONS_G[cat]||'·'} ${esc(cat)}</div>
-        <div class="budget-nums ${over?'budget-over':''}">
-          ${sym}${spent.toFixed(0)} / 
-          <input class="budget-input" type="number" min="0" step="1" inputmode="decimal"
-            value="${bgt||''}" placeholder="0"
-            onchange="saveBudgetVal(${jsArg(cat)},this.value)"
-            onblur="saveBudgetVal(${jsArg(cat)},this.value)"
-          />
-        </div>
+        <div class="budget-nums${over?' budget-over':''}">${money(spent)}${spent?` <span style="color:var(--text3)">· ${Math.round(share)}%</span>`:''}</div>
       </div>
-      <div class="budget-bar-track"><div class="budget-bar-fill${warn?' warn':over?' over':''}" style="width:${pct}%"></div></div>
+      <div class="budget-bar-track"><div class="budget-bar-fill${bgt?(over?' over':warn?' warn':''):' share'}" style="width:${bgt?Math.min(rawPct,100):share}%"></div></div>
+      <div class="budget-sub"><span>${status}</span>${editable?`<label>Presupuesto ${sym}<input class="budget-input" type="number" min="0" step="1" inputmode="decimal"
+          value="${bgt||''}" placeholder="—" onchange="saveBudgetVal(${jsArg(cat)},this.value)"/></label>`:''}</div>
     </div>`;
-  }).join('');
+  }).join('')||'<div class="empty">Agrega categorías en Config</div>';
   renderExtraBudget();
 }
 
@@ -1091,20 +1120,6 @@ function renderBars(){
         <div class="bar-track"><div class="bar-fill ${cls}" style="width:${total?Math.round(v/total*100):0}%"></div></div>
       </div>`).join('');
   }
-  function makeExtraBars(items,elId){
-    const bycat={};
-    items.forEach(t=>{const k=t.extraCat||'otro';bycat[k]=(bycat[k]||0)+toDisplay(t.amt,t.cur)});
-    const sorted=Object.entries(bycat).sort((a,b)=>b[1]-a[1]);
-    const total=sorted.reduce((s,[,v])=>s+v,0);
-    if(!sorted.length){document.getElementById(elId).innerHTML='<div class="empty">Sin gastos extraordinarios</div>';return}
-    document.getElementById(elId).innerHTML=sorted.map(([c,v])=>`
-      <div class="bar-wrap">
-        <div class="bar-row"><span class="bar-name">${ICONS_E[c]||'·'} ${esc(LABELS_E[c]||c)}</span><span class="bar-val">${fmt(v)} · ${total?Math.round(v/total*100):0}%</span></div>
-        <div class="bar-track"><div class="bar-fill extra" style="width:${total?Math.round(v/total*100):0}%"></div></div>
-      </div>`).join('');
-  }
-  makeBars(md.filter(t=>(t.type==='gasto'||t.type==='tarjeta')&&!t.isTransfer),'bars-gasto','');
-  makeExtraBars(md.filter(t=>t.type==='extra'),'bars-extra');
   makeBars(md.filter(t=>t.type==='ingreso'&&!t.isTransfer),'bars-ingreso','inc');
 }
 
@@ -2511,7 +2526,7 @@ function clearAll(){
 }
 
 // ─── TABS ───
-const ALL_TABS=['dash','add','resumen','tarjeta','budget','config'];
+const ALL_TABS=['dash','add','tarjeta','budget','config'];
 function switchTab(name){
   ALL_TABS.forEach(n=>{
     document.getElementById('sec-'+n).classList.toggle('active',n===name);
@@ -2519,7 +2534,6 @@ function switchTab(name){
     if(nb) nb.classList.toggle('active',n===name);
   });
   if(name==='config'){renderConfig();renderSyncConfig()}
-  if(name==='resumen') renderBars();
   document.getElementById('scroll-area').scrollTop=0;
 }
 
@@ -2533,7 +2547,7 @@ if('serviceWorker' in navigator && location.protocol!=='file:'){
 }
 // ─── ACTUALIZACIONES ───
 // Compara con la versión publicada; si hay una más nueva, muestra un aviso para cargarla
-const APP_VERSION=16;
+const APP_VERSION=17;
 async function checkUpdate(manual){
   if(location.protocol==='file:') return;
   try{
