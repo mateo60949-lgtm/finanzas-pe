@@ -113,6 +113,21 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 .budget-input{background:var(--bg);border:0.5px solid var(--border2);border-radius:6px;font-family:'DM Mono',monospace;font-size:12px;padding:2px 6px;width:75px;text-align:right;color:var(--text);outline:none;-webkit-appearance:none;appearance:none}
 .budget-input:focus{border-color:var(--text);background:var(--surface)}
 .cc-card{background:linear-gradient(135deg,#1A1917 0%,#3D3B38 100%);border-radius:var(--rl);padding:16px;margin-bottom:10px;color:white}
+.cc-tabs{display:flex;gap:6px;overflow-x:auto;margin:0 -16px 10px;padding:0 16px 2px;scrollbar-width:none}
+.cc-tabs::-webkit-scrollbar{display:none}
+.cc-tab{flex-shrink:0;min-width:130px;text-align:left;padding:9px 12px;border-radius:var(--r);border:0.5px solid var(--border2);background:var(--surface);color:var(--text);cursor:pointer;font-family:'Syne',sans-serif}
+.cc-tab.active{background:var(--text);color:white;border-color:var(--text)}
+.cc-tab-bank{font-size:9px;letter-spacing:0.06em;text-transform:uppercase;opacity:0.6;margin-bottom:2px}
+.cc-tab-name{font-size:12px;font-weight:600;white-space:nowrap}
+.cc-tab-debt{font-family:'DM Mono',monospace;font-size:10px;opacity:0.7;margin-top:3px;white-space:nowrap}
+.cc-tab-add{min-width:auto;display:flex;align-items:center;border-style:dashed;color:var(--text2)}
+.cc-bank{font-size:10px;letter-spacing:0.08em;text-transform:uppercase;opacity:0.55;margin-bottom:4px}
+.cc-name-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:2px}
+.cc-edit{background:none;border:0.5px solid rgba(255,255,255,0.3);color:white;opacity:0.8;border-radius:12px;padding:3px 10px;font-size:10px;font-family:'Syne',sans-serif;cursor:pointer}
+.cc-dates{font-size:10px;opacity:0.55;margin-bottom:10px}
+.cc-split{border-top:0.5px solid rgba(255,255,255,0.1);margin-top:8px;padding-top:8px;display:flex;flex-direction:column;gap:3px}
+.cc-split div{display:flex;justify-content:space-between;font-size:10px;opacity:0.6}
+.cc-split span:last-child{font-family:'DM Mono',monospace}
 .cc-name{font-size:11px;opacity:0.6;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px}
 .cc-limit-row{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
 .cc-used{font-family:'DM Mono',monospace;font-size:20px;font-weight:500}
@@ -121,7 +136,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 .cc-bar-fill{height:100%;border-radius:2px;background:#E8C97A;transition:width 0.4s}
 .cc-bar-fill.danger{background:#E87A7A}
 .cc-meta-row{display:flex;justify-content:space-between;align-items:center;font-size:10px;opacity:0.5}
-.cc-drawer{background:rgba(255,255,255,0.06);border-top:0.5px solid rgba(255,255,255,0.12);padding:10px 16px;margin:0 -16px -16px;border-radius:0 0 var(--rl) var(--rl)}
+.cc-drawer{background:rgba(255,255,255,0.06);border-top:0.5px solid rgba(255,255,255,0.12);padding:10px 16px;margin:12px -16px -16px;border-radius:0 0 var(--rl) var(--rl)}
 .cc-drawer-row{display:flex;gap:8px;align-items:center;padding:4px 0}
 .cc-drawer-row:first-child{border-bottom:0.5px solid rgba(255,255,255,0.08);padding-bottom:8px;margin-bottom:4px}
 .cc-drawer-label{font-size:10px;color:rgba(255,255,255,0.45);font-weight:600;letter-spacing:.05em;width:28px;flex-shrink:0}
@@ -476,7 +491,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
     <div class="cfg-section">
       <div class="cfg-section-title">⚠️ Zona peligrosa</div>
       <button class="danger-btn" onclick="clearAll()">Borrar todos los datos</button>
-      <div style="text-align:center;font-size:10px;color:var(--text3);margin-top:14px">finanzas pe · versión 15 · <a href="#" onclick="checkUpdate(true);return false" style="color:inherit">buscar actualización</a></div>
+      <div style="text-align:center;font-size:10px;color:var(--text3);margin-top:14px">finanzas pe · versión 16 · <a href="#" onclick="checkUpdate(true);return false" style="color:inherit">buscar actualización</a></div>
     </div>
   </div>
 
@@ -898,92 +913,90 @@ function renderPayReminders(){
   }).join('');
 }
 
+// Tarjeta elegida en la pestaña T. Crédito (solo es preferencia de vista de este dispositivo)
+let activeCard=(()=>{try{return localStorage.getItem('ui_card')||''}catch(e){return ''}})();
+function selectCard(name){activeCard=name;try{localStorage.setItem('ui_card',name)}catch(e){}renderCC()}
 function renderCC(){
   const md=getMonthData();
   const mk=monthKey(viewDate);
   const upTo=data.filter(t=>t.date.slice(0,7)<=mk);
   const el=document.getElementById('cc-section');
-  if(!cards.length){el.innerHTML='';return}
-  const cardAmounts = [];
-  el.innerHTML=cards.map((c,i)=>{
-    const isMine=t=>t.ccName===c.name||(t.ccName===undefined&&t.ccIndex===i);
-    const isCharge=t=>(t.type==='tarjeta'&&isMine(t))||((t.type==='gasto'||t.type==='extra')&&t.method===c.name);
-    const isPay=t=>t.type==='pago'&&isMine(t);
-    const sumCur=(list,cur)=>list.filter(t=>t.cur===cur).reduce((s,t)=>s+t.amt,0);
-    const txs=md.filter(isCharge);
-    const payTxs=md.filter(isPay);
-    // Deuda acumulada hasta el mes visto: la deuda no pagada pasa al mes siguiente
-    const allCharges=upTo.filter(isCharge), allPays=upTo.filter(isPay);
-    const usedPEN=sumCur(allCharges,'PEN')-sumCur(allPays,'PEN');
-    const usedUSD=sumCur(allCharges,'USD')-sumCur(allPays,'USD');
-    const usedPENpos=Math.max(usedPEN,0);
-    const usedUSDpos=Math.max(usedUSD,0);
-    // Línea de crédito única en soles; USD se convierte solo para la barra
-    const totalUsedPEN=usedPENpos + usedUSDpos*tcRate;
-    const limit=c.limitPEN||0;
-    const pct=limit?Math.min(totalUsedPEN/limit*100,100):0;
-    const danger=pct>80;
-    const dispPEN=Math.max(limit-totalUsedPEN,0);
-    const accountsOpts=opts(ACCOUNTS);
-    cardAmounts.push({i, pen: usedPENpos, usd: usedUSDpos});
-    // Barra unificada
-    const penBlock=`<div>
+  if(!cards.length){
+    el.innerHTML=`<div class="card" style="text-align:center;padding:24px 14px">
+      <div style="font-size:13px;font-weight:600;margin-bottom:6px">Aún no tienes tarjetas de crédito</div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:12px">Agrégala con su banco, número, límite y fechas de corte y pago.</div>
+      <button class="btn-add" onclick="openAccEdit(null,'tarjeta')">+ Agregar tarjeta de crédito</button></div>`;
+    return;
+  }
+  // Orden: por banco (como en Config) y luego las que no tienen banco
+  const rank=c=>{const i=BANKS.findIndex(b=>bankNorm(b)===bankNorm(c.bank));return c.bank&&i>=0?i:BANKS.length};
+  const order=cards.map((c,i)=>i).sort((a,b)=>rank(cards[a])-rank(cards[b]));
+  if(!cards.some(c=>c.name===activeCard)) activeCard=cards[order[0]].name;
+  const i=cards.findIndex(c=>c.name===activeCard), c=cards[i];
+  const debtTxt=d=>[d.pen>=0.01?fmtSym(d.pen,'PEN'):'',d.usd>=0.01?fmtSym(d.usd,'USD'):''].filter(Boolean).join(' + ')||'Sin deuda';
+  const tabs=`<div class="cc-tabs">${order.map(k=>{
+      const x=cards[k];
+      return `<button class="cc-tab${k===i?' active':''}" onclick="selectCard(${jsArg(x.name)})">
+        <div class="cc-tab-bank">${esc(x.bank||'Sin banco')}${x.number?' · '+esc(x.number):''}</div>
+        <div class="cc-tab-name">💳 ${esc(x.name)}</div>
+        <div class="cc-tab-debt">${esc(debtTxt(cardDebt(k)))}</div></button>`;
+    }).join('')}<button class="cc-tab cc-tab-add" onclick="openAccEdit(null,'tarjeta')"><div class="cc-tab-name">+ Tarjeta</div></button></div>`;
+
+  const isMine=t=>t.ccName===c.name||(t.ccName===undefined&&t.ccIndex===i);
+  const isCharge=t=>(t.type==='tarjeta'&&isMine(t))||((t.type==='gasto'||t.type==='extra')&&t.method===c.name);
+  const isPay=t=>t.type==='pago'&&isMine(t);
+  const sumCur=(list,cur)=>list.filter(t=>t.cur===cur).reduce((s,t)=>s+t.amt,0);
+  // Deuda acumulada hasta el mes visto: la deuda no pagada pasa al mes siguiente
+  const allCharges=upTo.filter(isCharge), allPays=upTo.filter(isPay);
+  const usedPENpos=Math.max(sumCur(allCharges,'PEN')-sumCur(allPays,'PEN'),0);
+  const usedUSDpos=Math.max(sumCur(allCharges,'USD')-sumCur(allPays,'USD'),0);
+  // Línea de crédito única en soles; los dólares se convierten solo para la barra
+  const totalUsedPEN=usedPENpos+usedUSDpos*tcRate;
+  const limit=c.limitPEN||0;
+  const pct=limit?Math.min(totalUsedPEN/limit*100,100):0;
+  const dispPEN=Math.max(limit-totalUsedPEN,0);
+  // Se paga por defecto desde una cuenta del mismo banco (la primera en soles o dólares según la fila)
+  const payFrom=cur=>{
+    const same=ACCOUNTS.filter(a=>c.bank&&accMeta&&accMeta[a]&&bankNorm(accMeta[a].bank)===bankNorm(c.bank));
+    return same.find(a=>accCur(a)===cur)||same[0]||'';
+  };
+  const accountsOpts=cur=>ACCOUNTS.map(a=>`<option value="${esc(a)}"${a===payFrom(cur)?' selected':''}>${esc(a)}</option>`).join('');
+  const payRow=(cur,lbl)=>`<div class="cc-drawer-row">
+      <span class="cc-drawer-label">${lbl}</span>
+      <input class="cc-drawer-input" id="cc-pay-amt-${cur.toLowerCase()}-${i}" type="number" min="0" step="0.01" inputmode="decimal" placeholder="Monto" value="${(cur==='USD'?usedUSDpos:usedPENpos).toFixed(2)}"/>
+      <select class="cc-drawer-sel" id="cc-pay-from-${cur.toLowerCase()}-${i}">${accountsOpts(cur)}</select>
+      <button class="cc-drawer-btn" onclick="payCC(${i},'${cur}')">Pagar</button>
+    </div>`;
+  const movs=[...md.filter(isCharge).map(t=>[t,false]),...md.filter(isPay).map(t=>[t,true])]
+    .sort((a,b)=>b[0].date.localeCompare(a[0].date));
+  el.innerHTML=tabs+`<div class="cc-card">
+      <div class="cc-bank">${esc(c.bank||'Sin banco')}${c.number?' · T. crédito •••• '+esc(c.number):''}</div>
+      <div class="cc-name-row"><div style="font-size:16px;font-weight:700">${esc(c.name)}</div>
+        <button class="cc-edit" onclick="openAccEdit(${jsArg(c.name)},'tarjeta')">Editar</button></div>
+      <div class="cc-dates">${cardDatesLabel(c).replace(/^ · /,'')||'Sin fechas de corte y pago'}</div>
       <div class="cc-limit-row">
         <div class="cc-used">S/ ${totalUsedPEN.toFixed(2)}</div>
-        ${limit>0?`<div class="cc-limit">/ S/ ${limit.toFixed(2)}</div>`:`<div class="cc-limit">sin límite</div>`}
+        <div class="cc-limit">${limit>0?'/ S/ '+limit.toFixed(2):'sin límite'}</div>
       </div>
-      <div class="cc-bar-track"><div class="cc-bar-fill${danger?' danger':''}" style="width:${limit>0?pct:0}%"></div></div>
+      <div class="cc-bar-track"><div class="cc-bar-fill${pct>80?' danger':''}" style="width:${limit>0?pct:0}%"></div></div>
       <div class="cc-meta-row">
         <span>${limit>0?pct.toFixed(0)+'% usado':'deuda acumulada'}</span>
         ${limit>0?`<span>Disp: S/ ${dispPEN.toFixed(2)}</span>`:''}
       </div>
-      ${usedPENpos>0||usedUSDpos>0?`<div style="border-top:0.5px solid rgba(255,255,255,0.1);margin-top:8px;padding-top:8px;display:flex;flex-direction:column;gap:3px">
-        ${usedPENpos>0?`<div style="display:flex;justify-content:space-between;font-size:10px;opacity:0.6"><span>En soles</span><span style="font-family:'DM Mono',monospace">S/ ${usedPENpos.toFixed(2)}</span></div>`:''}
-        ${usedUSDpos>0?`<div style="display:flex;justify-content:space-between;font-size:10px;opacity:0.6"><span>En dólares</span><span style="font-family:'DM Mono',monospace">US$ ${usedUSDpos.toFixed(2)} ≈ S/ ${(usedUSDpos*tcRate).toFixed(2)}</span></div>`:''}
+      ${usedPENpos>0||usedUSDpos>0?`<div class="cc-split">
+        ${usedPENpos>0?`<div><span>En soles</span><span>S/ ${usedPENpos.toFixed(2)}</span></div>`:''}
+        ${usedUSDpos>0?`<div><span>En dólares</span><span>US$ ${usedUSDpos.toFixed(2)} ≈ S/ ${(usedUSDpos*tcRate).toFixed(2)}</span></div>`:''}
       </div>`:''}
-    </div>`;
-    return `<div class="cc-card" style="overflow:hidden">
-      <div class="cc-name">${esc(c.name)}${cardDatesLabel(c)}</div>
-      ${penBlock}
-      <div class="cc-drawer">
-        <div class="cc-drawer-row">
-          <span class="cc-drawer-label">S/</span>
-          <input class="cc-drawer-input" id="cc-pay-amt-pen-${i}" type="number" min="0" step="0.01" inputmode="decimal" placeholder="Monto" style="color:#FFFFFF;background:rgba(255,255,255,0.1);border:0.5px solid rgba(255,255,255,0.2);border-radius:8px;padding:7px 10px;font-size:13px;font-family:'DM Mono',monospace;outline:none;flex:1;min-width:0;-webkit-appearance:none;appearance:none"/>
-          <select class="cc-drawer-sel" id="cc-pay-from-pen-${i}" style="color:#FFFFFF;background:#3D3B38">${accountsOpts}</select>
-          <button class="cc-drawer-btn" onclick="payCC(${i},'PEN')">Pagar</button>
-        </div>
-        <div class="cc-drawer-row">
-          <span class="cc-drawer-label">US$</span>
-          <input class="cc-drawer-input" id="cc-pay-amt-usd-${i}" type="number" min="0" step="0.01" inputmode="decimal" placeholder="Monto" style="color:#FFFFFF;background:rgba(255,255,255,0.1);border:0.5px solid rgba(255,255,255,0.2);border-radius:8px;padding:7px 10px;font-size:13px;font-family:'DM Mono',monospace;outline:none;flex:1;min-width:0;-webkit-appearance:none;appearance:none"/>
-          <select class="cc-drawer-sel" id="cc-pay-from-usd-${i}" style="color:#FFFFFF;background:#3D3B38">${accountsOpts}</select>
-          <button class="cc-drawer-btn" onclick="payCC(${i},'USD')">Pagar</button>
-        </div>
-      </div>
+      <div class="cc-drawer">${payRow('PEN','S/')}${payRow('USD','US$')}</div>
     </div>
-    <div style="margin-bottom:10px">
-      ${txs.length?txs.slice().sort((a,b)=>b.date.localeCompare(a.date)).map(t=>`
-        <div class="tx-item">
-          <div class="tx-icon tarjeta">💳</div>
-          <div class="tx-info" onclick="openTxModal(${t.id})"><div class="tx-desc">${esc(t.desc)}</div><div class="tx-meta">${esc(t.cat||'')} · ${new Date(t.date+'T12:00').toLocaleDateString('es-PE',{day:'numeric',month:'short'})}</div></div>
-          <div class="tx-right"><div class="tx-amt tarjeta">− ${fmtOrig(t.amt,t.cur)}</div>${t.cur!==displayCur?`<div class="tx-sub">≈ ${fmt(toDisplay(t.amt,t.cur))}</div>`:''}</div>
-          <button class="tx-del" onclick="deleteTx(${t.id})">×</button>
-        </div>`).join(''):'<div class="empty">Sin gastos este mes</div>'}
-      ${payTxs.length?payTxs.slice().sort((a,b)=>b.date.localeCompare(a.date)).map(t=>`
-        <div class="tx-item">
-          <div class="tx-icon gasto">🔁</div>
-          <div class="tx-info" onclick="openTxModal(${t.id})"><div class="tx-desc">${esc(t.desc)}</div><div class="tx-meta">Pago T. Crédito · ${esc(t.method||'')} ·${new Date(t.date+'T12:00').toLocaleDateString('es-PE',{day:'numeric',month:'short'})}</div></div>
-          <div class="tx-right"><div class="tx-amt gasto">− ${fmtOrig(t.amt,t.cur)}</div>${t.cur!==displayCur?`<div class="tx-sub">≈ ${fmt(toDisplay(t.amt,t.cur))}</div>`:''}</div>
-          <button class="tx-del" onclick="deleteTx(${t.id})">×</button>
-        </div>`).join(''):'<div class="empty">Sin pagos este mes</div>'}
-      <button onclick="deleteCC(${i})" style="width:100%;margin-top:6px;padding:7px;font-size:11px;font-family:Syne,sans-serif;border:0.5px solid var(--border2);border-radius:var(--r);background:none;color:var(--text3);cursor:pointer">Eliminar tarjeta</button>
-    </div>`;
-  }).join('');
-  cardAmounts.forEach(({i, pen, usd}) => {
-    const penEl = document.getElementById('cc-pay-amt-pen-'+i);
-    const usdEl = document.getElementById('cc-pay-amt-usd-'+i);
-    if (penEl) penEl.value = pen.toFixed(2);
-    if (usdEl) usdEl.value = usd.toFixed(2);
-  });
+    <div class="card-title" style="margin:4px 2px 8px">Movimientos de ${esc(monthLabel(viewDate))} · ${movs.length}</div>
+    ${movs.length?movs.map(([t,isP])=>`
+      <div class="tx-item">
+        <div class="tx-icon ${isP?'gasto':'tarjeta'}">${isP?'🔁':'💳'}</div>
+        <div class="tx-info" onclick="openTxModal(${t.id})"><div class="tx-desc">${esc(t.desc)}</div><div class="tx-meta">${isP?'Pago desde '+esc(t.method||''):esc(t.cat||'')} · ${new Date(t.date+'T12:00').toLocaleDateString('es-PE',{day:'numeric',month:'short'})}</div></div>
+        <div class="tx-right"><div class="tx-amt ${isP?'ingreso':'tarjeta'}">${isP?'+':'−'} ${fmtOrig(t.amt,t.cur)}</div>${t.cur!==displayCur?`<div class="tx-sub">≈ ${fmt(toDisplay(t.amt,t.cur))}</div>`:''}</div>
+        <button class="tx-del" onclick="deleteTx(${t.id})">×</button>
+      </div>`).join(''):'<div class="empty">Sin movimientos este mes</div>'}`;
 }
 
 // ─── BUDGET ───
@@ -2520,7 +2533,7 @@ if('serviceWorker' in navigator && location.protocol!=='file:'){
 }
 // ─── ACTUALIZACIONES ───
 // Compara con la versión publicada; si hay una más nueva, muestra un aviso para cargarla
-const APP_VERSION=15;
+const APP_VERSION=16;
 async function checkUpdate(manual){
   if(location.protocol==='file:') return;
   try{
