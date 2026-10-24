@@ -27,6 +27,7 @@ En la app: **Config → Sincronización con tus bancos** → pega el enlace → 
 Los movimientos aparecen en **Inicio → Por revisar**. La primera vez eliges a qué cuenta o tarjeta de la app corresponde cada cuenta del banco; desde ahí lo recuerda y puedes usar **Confirmar todos**.
 
 ## Mantenimiento
+- **Precios de inversiones**: el script crea la pestaña **Precios** con fórmulas GOOGLEFINANCE para cada ticker que registres en la app. Si un ticker no aparece (por ejemplo un ETF europeo), en la app toca la posición y pon el precio a mano, o cambia el ticker en la hoja por el código con bolsa (ej: `ETR:VWCE`).
 - **Correos que no entendió**: quedan en la pestaña **Revisar** de la hoja, nunca se pierden. Pásame algunos y agrego la regla.
 - **Si cambias el script**: después de pegar la versión nueva, ejecuta `releerTodo` para volver a leer con las reglas nuevas (los movimientos ya confirmados en la app no se duplican), y en *Implementar → Gestionar implementaciones* edita la implementación y elige **Nueva versión**.
 - **Bank of America**: activa en su app *Alerts → Email* para compras, depósitos y transferencias. Sus reglas aún no se han probado con correos reales; los primeros aparecerán marcados para revisar.

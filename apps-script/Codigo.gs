@@ -354,6 +354,9 @@ function formatoFecha_(d, patron) {
 
 function doGet(e) {
   if (!autorizado_(e.parameter.t)) return json_({ ok: false, error: 'token' });
+  if (e.parameter.accion === 'precios') {
+    return json_({ ok: true, precios: precios_(String(e.parameter.tickers || '').split(',')) });
+  }
   if (e.parameter.accion === 'respaldo') {
     const r = leerRespaldo_();
     return json_({ ok: true, respaldo: r.datos, fecha: r.fecha });
@@ -388,6 +391,33 @@ function autorizado_(t) {
 }
 function json_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
+}
+
+// Precios de ETFs y acciones con GOOGLEFINANCE (gratis, ~20 min de retraso).
+// Cada ticker queda en la pestaña "Precios" con su fórmula; Google la recalcula solo.
+// Un ticker nuevo puede devolver "cargando" la primera vez: aparece en la siguiente sincronización.
+function precios_(tickers) {
+  const h = hoja_('Precios', ['Ticker', 'Precio', 'Moneda', 'Nombre']);
+  const pedidos = [...new Set(tickers.map(t => String(t).trim().toUpperCase()).filter(t => /^[A-Z0-9.:\-]{1,20}$/.test(t)))];
+  const n = h.getLastRow() - 1;
+  const existentes = n > 0 ? h.getRange(2, 1, n, 1).getValues().map(r => String(r[0]).toUpperCase()) : [];
+  const nuevos = pedidos.filter(t => !existentes.includes(t));
+  if (nuevos.length) {
+    const fila = h.getLastRow() + 1;
+    h.getRange(fila, 1, nuevos.length, 4).setFormulas(nuevos.map((t, i) => {
+      const r = fila + i;
+      return ['="' + t + '"', '=IFERROR(GOOGLEFINANCE(A' + r + ',"price"),"")', '=IFERROR(GOOGLEFINANCE(A' + r + ',"currency"),"")', '=IFERROR(GOOGLEFINANCE(A' + r + ',"name"),"")'];
+    }));
+    SpreadsheetApp.flush();
+  }
+  const m = h.getLastRow() - 1;
+  const filas = m > 0 ? h.getRange(2, 1, m, 4).getValues() : [];
+  const out = {};
+  filas.forEach(f => {
+    const t = String(f[0]).toUpperCase();
+    if (pedidos.includes(t)) out[t] = typeof f[1] === 'number' && f[1] > 0 ? { precio: f[1], moneda: f[2], nombre: f[3] } : null;
+  });
+  return out;
 }
 
 // El respaldo se parte en trozos porque una celda admite ~50.000 caracteres
