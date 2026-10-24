@@ -185,6 +185,11 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 
 /* ── DASHBOARD ── */
 .dash-balance-card{background:linear-gradient(135deg,#18181A 0%,#2D2C2A 100%);border-radius:var(--rl);padding:18px;margin-bottom:10px;color:white}
+.dash-balance-sm{padding:12px 14px}
+.dash-balance-sm .dash-balance-label{margin-bottom:3px}
+.dash-balance-sm .dash-balance-val{font-size:20px;margin-bottom:8px}
+.dash-balance-sm .dash-ie-label{margin-bottom:1px}
+.dash-balance-sm .dash-ie-val{font-size:12px}
 .dash-balance-label{font-size:10px;opacity:0.5;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px}
 .dash-balance-val{font-family:'DM Mono',monospace;font-size:26px;font-weight:500;letter-spacing:-0.02em;margin-bottom:14px}
 .dash-balance-val.neg{color:#E87A7A}
@@ -328,7 +333,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
     <div id="dash-inbox"></div>
     <div id="dash-pay"></div>
     <div id="dash-backup-nudge"></div>
-    <div class="dash-balance-card">
+    <div class="dash-balance-card dash-balance-sm">
       <div class="dash-balance-label">Balance del mes</div>
       <div class="dash-balance-val" id="dash-balance-val">S/ 0.00</div>
       <div class="dash-income-expense">
@@ -533,7 +538,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
       <button class="danger-btn" style="margin-bottom:8px" onclick="freshStart()">Empezar de cero desde hoy</button>
       <div style="font-size:10px;color:var(--text3);margin:-2px 2px 12px">Borra todos los movimientos y saldos iniciales, pero conserva tus bancos, cuentas, tarjetas, categorías y presupuestos. Después pones el saldo de cada cuenta y la deuda de cada tarjeta, y desde ese momento todo se suma solo.</div>
       <button class="danger-btn" onclick="clearAll()">Borrar todos los datos</button>
-      <div style="text-align:center;font-size:10px;color:var(--text3);margin-top:14px">finanzas pe · versión 24 · <a href="#" onclick="checkUpdate(true);return false" style="color:inherit">buscar actualización</a></div>
+      <div style="text-align:center;font-size:10px;color:var(--text3);margin-top:14px">finanzas pe · versión 25 · <a href="#" onclick="checkUpdate(true);return false" style="color:inherit">buscar actualización</a></div>
     </div>
   </div>
 
@@ -3009,7 +3014,7 @@ if('serviceWorker' in navigator && location.protocol!=='file:'){
 }
 // ─── ACTUALIZACIONES ───
 // Compara con la versión publicada; si hay una más nueva, muestra un aviso para cargarla
-const APP_VERSION=24;
+const APP_VERSION=25;
 async function checkUpdate(manual){
   if(location.protocol==='file:') return;
   try{
