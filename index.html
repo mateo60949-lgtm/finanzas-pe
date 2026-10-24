@@ -476,7 +476,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
     <div class="cfg-section">
       <div class="cfg-section-title">⚠️ Zona peligrosa</div>
       <button class="danger-btn" onclick="clearAll()">Borrar todos los datos</button>
-      <div style="text-align:center;font-size:10px;color:var(--text3);margin-top:14px">finanzas pe · versión 13</div>
+      <div style="text-align:center;font-size:10px;color:var(--text3);margin-top:14px">finanzas pe · versión 14</div>
     </div>
   </div>
 
@@ -1443,6 +1443,10 @@ function restoreBackup(text){
   Object.keys(localStorage).filter(k=>k.startsWith('fp_')).forEach(k=>localStorage.removeItem(k));
   entries.forEach(([k,v])=>localStorage.setItem(k,v));
   if(sync&&!b.data.fp_sync) localStorage.setItem('fp_sync',sync);
+  try{
+    const sc=JSON.parse(localStorage.getItem('fp_sync')||'null');
+    if(sc){sc.cloudBase=b.exportedAt;delete sc.cloudConflict;localStorage.setItem('fp_sync',JSON.stringify(sc))}
+  }catch(e){}
   localStorage.setItem('fp_version',String(b.version||1));
   if(when&&!isNaN(when)) localStorage.setItem('fp_last_backup',todayStr(when));
   _restoring=true;
@@ -1499,7 +1503,12 @@ function saveSyncUrl(){
   // Por defecto se importa desde el inicio del mes actual, para no llenar la bandeja con meses pasados
   syncCfg={...(syncCfg||{}),url:v,desde:(syncCfg&&syncCfg.desde)||todayStr().slice(0,8)+'01'};
   saveSyncState(); renderSyncConfig();
-  syncNow(true).then(ok=>{if(ok&&first) scheduleCloudBackup(1000)});
+  syncNow(true).then(async ok=>{
+    if(!ok||!first) return;
+    let head=null;
+    try{head=await cloudHead()}catch(e){return}
+    if(head) restoreFromCloud(); else scheduleCloudBackup(1000);
+  });
 }
 function saveSyncDesde(v){
   if(!syncCfg) return;
@@ -1559,22 +1568,48 @@ function scheduleCloudBackup(delay=8000){
   clearTimeout(_backupTimer);
   _backupTimer=setTimeout(pushCloudBackup,delay);
 }
-async function pushCloudBackup(){
+// Lee la copia que hay en la nube (fecha y cantidad de movimientos), o null si no hay
+async function cloudHead(){
+  const ep=syncEndpoint();
+  if(!ep) return null;
+  const j=await (await fetch(ep.base+'?t='+encodeURIComponent(ep.token)+'&accion=respaldo',{cache:'no-store'})).json();
+  if(!j.ok||!j.respaldo) return null;
+  const b=JSON.parse(j.respaldo); let n=0;
+  try{n=JSON.parse(b.data.fp_tx||'[]').length}catch(e){}
+  return {exportedAt:b.exportedAt,n};
+}
+async function pushCloudBackup(force){
   clearTimeout(_backupTimer); _backupTimer=null;
   const ep=syncEndpoint();
-  if(!ep||_restoring) return;
+  if(!ep||_restoring||(syncCfg.cloudConflict&&!force)) return;
   try{
+    // Antes de subir: si otro dispositivo guardó una copia más nueva, no se pisa; se pregunta en Inicio
+    const head=await cloudHead();
+    if(head&&!force&&head.exportedAt!==syncCfg.cloudBase){
+      // Dispositivos de antes de esta versión: si la copia de la nube la subió este mismo, se reconoce por la hora
+      const mine=!syncCfg.cloudBase&&syncCfg.cloudAt&&Math.abs(new Date(syncCfg.cloudAt)-new Date(head.exportedAt))<12e4;
+      if(!mine){syncCfg.cloudConflict={fecha:head.exportedAt,n:head.n};saveSyncState();renderDash();return}
+    }
+    const payload=backupPayload();
     // text/plain evita la verificación previa (CORS) que Apps Script no admite
-    const r=await fetch(ep.base,{method:'POST',body:JSON.stringify({t:ep.token,accion:'respaldo',datos:JSON.stringify(backupPayload())})});
+    const r=await fetch(ep.base,{method:'POST',body:JSON.stringify({t:ep.token,accion:'respaldo',datos:JSON.stringify(payload)})});
     const j=await r.json();
     if(!j.ok) throw new Error(j.error||'');
-    syncCfg.cloudAt=new Date().toISOString(); syncCfg.cloudError=false;
+    syncCfg.cloudAt=new Date().toISOString(); syncCfg.cloudBase=payload.exportedAt;
+    syncCfg.cloudError=false; delete syncCfg.cloudConflict;
     localStorage.setItem('fp_last_backup',todayStr());
-    saveSyncState();
+    saveSyncState(); renderDash();
   }catch(e){
     // Sin conexión o error del script: se avisa en Inicio y se reintenta en el próximo cambio o al sincronizar
     if(navigator.onLine&&syncCfg){syncCfg.cloudError=true;saveSyncState();renderDash()}
   }
+}
+function keepThisDevice(){
+  const c=syncCfg.cloudConflict;
+  if(!c) return;
+  if(!confirm(`Se reemplazará la copia de la nube (${new Date(c.fecha).toLocaleString('es-PE',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}, ${c.n} movimientos) por los datos de ESTE dispositivo.\n\nLo que tenga solo el otro dispositivo se perderá. ¿Continuar?`)) return;
+  delete syncCfg.cloudConflict; saveSyncState();
+  pushCloudBackup(true).then(()=>toast('✓ Copia de este dispositivo guardada en la nube'));
 }
 async function restoreFromCloud(){
   const ep=syncEndpoint();
@@ -1705,10 +1740,18 @@ function renderInbox(){
   const status=syncCfg.error
     ?`<span style="color:var(--red)">⚠ ${esc(syncCfg.error)}</span>`
     :`Sincronizado ${ago}${syncCfg.sinLeer?` · ${syncCfg.sinLeer} correo(s) sin reconocer en la hoja «Revisar»`:''}${syncCfg.cloudError?' · <span style="color:var(--red)">⚠ la copia en la nube no se pudo guardar</span>':''}`;
-  const fix=syncCfg.misplaced?`<div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:8px;border-color:var(--amber);background:var(--amber-bg)">
+  const conflict=syncCfg.cloudConflict?`<div class="card" style="border-color:var(--red);background:var(--red-bg)">
+      <div style="font-size:12px;font-weight:700;color:var(--red);margin-bottom:4px">⚠ Hay una copia más nueva en la nube</div>
+      <div style="font-size:11px;color:var(--text2);margin-bottom:10px">Otro dispositivo guardó tus datos el ${new Date(syncCfg.cloudConflict.fecha).toLocaleString('es-PE',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})} (${syncCfg.cloudConflict.n} movimientos). Para no perder nada, elige con cuál quedarte. Mientras tanto no se sube nada.</div>
+      <div class="inbox-actions" style="margin-top:0">
+        <button class="inbox-ok" onclick="restoreFromCloud()">Traer la de la nube</button>
+        <button class="inbox-no" onclick="keepThisDevice()">Usar la de este</button>
+      </div>
+    </div>`:'';
+  const fix=conflict+(syncCfg.misplaced?`<div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:8px;border-color:var(--amber);background:var(--amber-bg)">
       <div style="font-size:12px;font-weight:600;color:var(--amber)">⚠ ${syncCfg.misplaced} movimiento${syncCfg.misplaced>1?'s':''} del correo no ${syncCfg.misplaced>1?'están':'está'} en su cuenta correcta</div>
       <button class="cfg-btn" onclick="reassignFromEmail()">Corregir</button>
-    </div>`:'';
+    </div>`:'');
   if(!inbox.length){
     el.innerHTML=fix+`<div class="card inbox-card" style="padding:12px 14px">
       <div class="inbox-head"><div class="card-title">📥 Por revisar</div><button class="link-btn" style="margin:0" onclick="syncNow(true)">Sincronizar</button></div>
