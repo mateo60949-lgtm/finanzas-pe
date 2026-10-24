@@ -23,8 +23,8 @@
   --border: rgba(0,0,0,0.09);
   --border2: rgba(0,0,0,0.16);
   --text: #18181A;
-  --text2: #6B6860;
-  --text3: #A8A49E;
+  --text2: #18181A;
+  --text3: #18181A;
   --green: #1A8C65;
   --green-bg: #DCF0E8;
   --red: #C94A28;
@@ -56,7 +56,7 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text);displa
 .bnav{display:flex;background:var(--surface);border-top:0.5px solid var(--border2);flex-shrink:0;padding-bottom:env(safe-area-inset-bottom);position:fixed;bottom:0;left:0;right:0;z-index:10}
 .bnav-btn{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:9px 4px 7px;border:none;background:none;cursor:pointer;color:var(--text3);font-family:'Syne',sans-serif;font-size:9px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;transition:color 0.12s}
 .bnav-btn .ico{font-size:18px;line-height:1}
-.bnav-btn.active{color:var(--text)}
+.bnav-btn.active{color:var(--text);box-shadow:inset 0 2px 0 var(--text);font-weight:800}
 .scroll{flex:1;overflow-y:auto;overflow-x:hidden;padding:10px 16px 72px;-webkit-overflow-scrolling:touch}
 .sec{display:none}.sec.active{display:block}
 .card{background:var(--surface);border:0.5px solid var(--border);border-radius:var(--rl);padding:14px;margin-bottom:10px}
@@ -538,7 +538,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
       <button class="danger-btn" style="margin-bottom:8px" onclick="freshStart()">Empezar de cero desde hoy</button>
       <div style="font-size:10px;color:var(--text3);margin:-2px 2px 12px">Borra todos los movimientos y saldos iniciales, pero conserva tus bancos, cuentas, tarjetas, categorías y presupuestos. Después pones el saldo de cada cuenta y la deuda de cada tarjeta, y desde ese momento todo se suma solo.</div>
       <button class="danger-btn" onclick="clearAll()">Borrar todos los datos</button>
-      <div style="text-align:center;font-size:10px;color:var(--text3);margin-top:14px">finanzas pe · versión 25 · <a href="#" onclick="checkUpdate(true);return false" style="color:inherit">buscar actualización</a></div>
+      <div style="text-align:center;font-size:10px;color:var(--text3);margin-top:14px">finanzas pe · versión 26 · <a href="#" onclick="checkUpdate(true);return false" style="color:inherit">buscar actualización</a></div>
     </div>
   </div>
 
@@ -3014,7 +3014,7 @@ if('serviceWorker' in navigator && location.protocol!=='file:'){
 }
 // ─── ACTUALIZACIONES ───
 // Compara con la versión publicada; si hay una más nueva, muestra un aviso para cargarla
-const APP_VERSION=25;
+const APP_VERSION=26;
 async function checkUpdate(manual){
   if(location.protocol==='file:') return;
   try{
