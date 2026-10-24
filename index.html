@@ -287,6 +287,14 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 .inv-val{font-family:'DM Mono',monospace;font-size:14px;font-weight:500}
 .inv-gain{font-family:'DM Mono',monospace;font-size:10px;color:var(--text3);margin-top:2px}
 .inv-est{font-size:9px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;color:var(--amber);background:var(--amber-bg);border-radius:8px;padding:2px 6px;vertical-align:2px}
+.dash-inv{cursor:pointer}
+.dash-inv-plats{display:flex;flex-direction:column;gap:5px;margin-top:10px;padding-top:10px;border-top:0.5px solid var(--border)}
+.dash-inv-plats div{display:grid;grid-template-columns:1fr auto 56px;gap:8px;align-items:baseline;font-size:11px}
+.dash-inv-plats span{color:var(--text2);font-weight:600}
+.dash-inv-plats i{font-style:normal;font-size:9px;color:var(--amber)}
+.dash-inv-plats b{font-family:'DM Mono',monospace;font-weight:500}
+.dash-inv-plats em{font-style:normal;font-family:'DM Mono',monospace;font-size:10px;text-align:right;color:var(--text3)}
+.dash-inv-plats em.inv-up{color:var(--green)}.dash-inv-plats em.inv-down{color:var(--red)}
 .inv-up{color:var(--green)}.inv-down{color:var(--red)}
 .inv-ops{margin-top:8px;border-top:0.5px solid var(--border);padding-top:8px}
 .inv-ops summary{font-size:11px;color:var(--text2);cursor:pointer}
@@ -343,15 +351,11 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
       </div>
       <div id="dash-net-detail" class="cfg-sub" style="margin-top:4px"></div>
     </div>
+    <div id="dash-inv"></div>
 
     <div class="dash-section-title">💳 Mis cuentas</div>
     <div class="accounts-grid" id="dash-accounts"></div>
 
-    <div class="card">
-      <div class="card-title">Presupuesto del mes</div>
-      <div id="dash-budget-preview"></div>
-      <button class="link-btn" onclick="switchTab('budget')">Ver presupuesto completo →</button>
-    </div>
   </div>
 
   <!-- AGREGAR -->
@@ -529,7 +533,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
       <button class="danger-btn" style="margin-bottom:8px" onclick="freshStart()">Empezar de cero desde hoy</button>
       <div style="font-size:10px;color:var(--text3);margin:-2px 2px 12px">Borra todos los movimientos y saldos iniciales, pero conserva tus bancos, cuentas, tarjetas, categorías y presupuestos. Después pones el saldo de cada cuenta y la deuda de cada tarjeta, y desde ese momento todo se suma solo.</div>
       <button class="danger-btn" onclick="clearAll()">Borrar todos los datos</button>
-      <div style="text-align:center;font-size:10px;color:var(--text3);margin-top:14px">finanzas pe · versión 23 · <a href="#" onclick="checkUpdate(true);return false" style="color:inherit">buscar actualización</a></div>
+      <div style="text-align:center;font-size:10px;color:var(--text3);margin-top:14px">finanzas pe · versión 24 · <a href="#" onclick="checkUpdate(true);return false" style="color:inherit">buscar actualización</a></div>
     </div>
   </div>
 
@@ -1334,22 +1338,21 @@ function renderDash(){
     aEl.innerHTML=groups.map(([b,l])=>`<div class="dash-section-title" style="grid-column:span 2;margin:${b===groups[0][0]?'0':'6px'} 2px 0">${esc(b)}</div>`+l.map(accCard).join('')).join('');
   }
 
-  // Budget preview
-  const bgtEl=document.getElementById('dash-budget-preview');
-  const withBgt=CATS_G.filter(c=>((budgets[c]||{}).PEN>0)||((budgets[c]||{}).USD>0));
-  if(!withBgt.length){bgtEl.innerHTML='<div class="empty" style="padding:0.8rem 0;font-size:11px">Sin presupuestos. Ve a Budget \u2192</div>';}
+  // Inversiones
+  const invEl=document.getElementById('dash-inv');
+  if(!INV.plats.length){invEl.innerHTML='';}
   else{
-    bgtEl.innerHTML=withBgt.map(cat=>{
-      const bgtPEN=(budgets[cat]||{}).PEN||0;
-      const bgtUSD=(budgets[cat]||{}).USD||0;
-      const bgt=bgtPEN>0?bgtPEN:(bgtUSD*tcRate);
-      const spent=md.filter(t=>(t.type==='gasto'||t.type==='tarjeta')&&t.cat===cat)
-        .reduce((s,t)=>s+toPEN(t.amt,t.cur),0);
-      const rawPct=bgt?spent/bgt*100:0;
-      const pct=Math.min(rawPct,100);
-      const warn=rawPct>75&&rawPct<=100,over=rawPct>100;
-      return '<div class="dash-bgt-row"><div class="dash-bgt-name">'+(ICONS_G[cat]||'·')+' '+esc(cat)+'</div><div class="dash-bgt-track"><div class="dash-bgt-fill'+(warn?' warn':over?' over':'')+'" style="width:'+pct+'%"></div></div><div class="dash-bgt-pct">'+Math.round(rawPct)+'%</div></div>';
-    }).join('');
+    const T=invTotals();
+    invEl.innerHTML=`<div class="card dash-inv" onclick="switchTab('inv')">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div class="card-title" style="margin:0">↗ Mis inversiones</div><span style="color:var(--text3)">›</span></div>
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
+        <div style="font-family:'DM Mono',monospace;font-size:20px;font-weight:500">${usd(T.value)}</div>
+        <div class="inv-gain ${gainCls(T.gain)}" style="font-size:12px">${T.gain>=0?'+':''}${usd(T.gain)} · ${pctTxt(T.pct)}</div>
+      </div>
+      <div class="dash-inv-plats">${T.all.filter(x=>x.value>0||x.net>0).map(x=>`<div><span>${esc(x.plat)}${x.est!=null?' <i>est.</i>':''}</span><b>${usd(x.value)}</b><em class="${gainCls(x.gain)}">${pctTxt(x.pct)}</em></div>`).join('')}</div>
+      ${T.irr!=null?`<div class="cfg-sub" style="margin-top:8px">Rentabilidad anual ${pctTxt(T.irr)} · ≈ S/ ${(T.value*tcRate).toLocaleString('es-PE',{maximumFractionDigits:0})}</div>`:`<div class="cfg-sub" style="margin-top:8px">≈ S/ ${(T.value*tcRate).toLocaleString('es-PE',{maximumFractionDigits:0})}</div>`}
+    </div>`;
   }
 }
 
@@ -3006,7 +3009,7 @@ if('serviceWorker' in navigator && location.protocol!=='file:'){
 }
 // ─── ACTUALIZACIONES ───
 // Compara con la versión publicada; si hay una más nueva, muestra un aviso para cargarla
-const APP_VERSION=23;
+const APP_VERSION=24;
 async function checkUpdate(manual){
   if(location.protocol==='file:') return;
   try{
