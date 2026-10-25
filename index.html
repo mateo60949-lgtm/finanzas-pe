@@ -557,7 +557,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
       <button class="danger-btn" style="margin-bottom:8px" onclick="freshStart()">Empezar de cero desde hoy</button>
       <div style="font-size:10px;color:var(--text3);margin:-2px 2px 12px">Borra todos los movimientos y saldos iniciales, pero conserva tus bancos, cuentas, tarjetas, categorías y presupuestos. Después pones el saldo de cada cuenta y la deuda de cada tarjeta, y desde ese momento todo se suma solo.</div>
       <button class="danger-btn" onclick="clearAll()">Borrar todos los datos</button>
-      <div style="text-align:center;font-size:10px;color:var(--text3);margin-top:14px">finanzas pe · versión 34 · <a href="#" onclick="checkUpdate(true);return false" style="color:inherit">buscar actualización</a></div>
+      <div style="text-align:center;font-size:10px;color:var(--text3);margin-top:14px">finanzas pe · versión 35 · <a href="#" onclick="checkUpdate(true);return false" style="color:inherit">buscar actualización</a></div>
     </div>
   </div>
 
@@ -2180,6 +2180,10 @@ async function syncNow(manual){
     const r=await fetch(ep.base+'?t='+encodeURIComponent(ep.token),{cache:'no-store'});
     const j=await r.json();
     if(!j.ok) throw new Error(j.error==='token'?'El enlace no es válido (token)':'Error del script');
+    // Los estados de cuenta no son movimientos: actualizan lo facturado de la tarjeta
+    const stmts=(j.movimientos||[]).filter(m=>m.tipo==='estado');
+    j.movimientos=(j.movimientos||[]).filter(m=>m.tipo!=='estado');
+    applyStatements(stmts);
     initBankMeta(j.movimientos);
     normalizeOutside(numberKinds(j.movimientos));
     const done=new Set(load('fp_seen',[]));
@@ -2968,6 +2972,38 @@ function saveAccEdit(){
   closeAccEdit();
   afterBankChange('✓ Guardado');
 }
+// Estado de cuenta que llegó por correo: pasa a ser la deuda de partida de la tarjeta (como si la copiaras del banco),
+// con su monto facturado y su fecha de pago. Solo si llegó después de lo último que copiaste o del estado anterior.
+function applyStatements(stmts){
+  let changed=[];
+  stmts.slice().sort((a,b)=>(a.fecha+a.hora).localeCompare(b.fecha+b.hora)).forEach(m=>{
+    const due=(m.destino&&m.destino.nombre)||'';
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(due)) return;
+    const same=cards.filter(c=>c.bank&&bankNorm(c.bank)===bankNorm(m.origen.banco));
+    const c=(m.origen.cuenta&&same.find(k=>k.number===m.origen.cuenta))||(same.length===1?same[0]:null);
+    if(!c) return;
+    const init=c.initDebt||{};
+    if(init.src===m.id||(init.date&&m.fecha<init.date)) return;
+    // Fecha de corte: la del correo o, si no la trae, el último día de corte antes de que llegara
+    let cut=(m.destino&&m.destino.cuenta)||'';
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(cut)){
+      const C=parseInt(c.cycle), f=new Date(m.fecha+'T00:00');
+      if(C>=1&&C<=31){let d=dayIn(f.getFullYear(),f.getMonth(),C);if(d>=f)d=dayIn(f.getFullYear(),f.getMonth()-1,C);cut=todayStr(d)}
+      else cut=todayStr(new Date(f.getTime()-864e5));
+    }
+    const pen=+m.monto||0, usd=+m.montoDestino||0;
+    const sameBilled=Math.abs((+init.billedPEN||0)-pen)<0.01&&Math.abs((+init.billedUSD||0)-usd)<0.01;
+    if(init.date&&(init.date>=cut||sameBilled)){
+      // Lo que copiaste es de después del corte: ya incluye las compras nuevas; solo se toma lo facturado del banco
+      const extra=k=>Math.max((+init[k]||0)-(init['billed'+k]==null?(+init[k]||0):(+init['billed'+k]||0)),0);
+      c.initDebt={...init,PEN:pen+extra('PEN'),USD:usd+extra('USD'),billedPEN:pen,billedUSD:usd,due,src:m.id};
+    } else {
+      c.initDebt={PEN:pen,USD:usd,billedPEN:pen,billedUSD:usd,due,date:todayStr(new Date(new Date(cut+'T00:00').getTime()+864e5)),src:m.id};
+    }
+    changed.push(c.name);
+  });
+  if(changed.length){save();toast('📄 Estado de cuenta de '+[...new Set(changed)].join(' y ')+' actualizado')}
+}
 // Deuda copiada del banco: si cambió, desde hoy cuentan solo los movimientos nuevos (los anteriores ya están en esa cifra)
 function newInitDebt(old){
   const due=/^\d{4}-\d{2}-\d{2}$/.test(aeVal('ae-billed-due'))?aeVal('ae-billed-due'):'';
@@ -3261,7 +3297,7 @@ if('serviceWorker' in navigator && location.protocol!=='file:'){
 }
 // ─── ACTUALIZACIONES ───
 // Compara con la versión publicada; si hay una más nueva, muestra un aviso para cargarla
-const APP_VERSION=34;
+const APP_VERSION=35;
 async function checkUpdate(manual){
   if(location.protocol==='file:') return;
   try{

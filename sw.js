@@ -1,6 +1,6 @@
 // Service worker: guarda la app en el dispositivo para que abra sin internet.
 // Al publicar cambios en los archivos, sube el número de CACHE para que los teléfonos descarguen la versión nueva.
-const CACHE = 'finanzas-pe-v34';
+const CACHE = 'finanzas-pe-v35';
 const ASSETS = ['./', './index.html', './manifest.webmanifest', './icon.svg', './icon-180.png', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {

@@ -17,6 +17,8 @@ const CONFIG = {
     'bancadigital@scotiabank.com.pe',
     'bankofamerica.com',
     'notificaciones@yape.pe',
+    'estadodecuenta@notificacionesbcp.com.pe',
+    'avisos@scotiabank.com.pe',
   ],
   DIAS_INICIALES: 180,     // en la primera lectura, cuántos días hacia atrás
   HOJA_MOV: 'Movimientos',
@@ -223,6 +225,8 @@ function parsearCorreo(remitente, asunto, cuerpo, fecha) {
     fecha: formatoFecha_(fecha, 'yyyy-MM-dd'), hora: formatoFecha_(fecha, 'HH:mm'),
     origen: NADA, destino: NADA, confianza: 'alta',
   };
+  const ec = estadoCuenta_(t, a, de);
+  if (ec) return Object.assign(base, ec);
   const r = de.includes('bcp') ? bcp_(t, a)
     : de.includes('scotiabank') ? scotiabank_(t, a)
     : de.includes('bankofamerica') ? bofa_(t, a)
@@ -230,6 +234,34 @@ function parsearCorreo(remitente, asunto, cuerpo, fecha) {
     : null;
   if (r) return Object.assign(base, r);
   return IGNORAR.test(a) ? { ignorar: true } : null;
+}
+
+/**
+ * Estado de cuenta mensual de la tarjeta de crédito. Va en Movimientos con tipo "estado":
+ * Monto = facturado en soles, Monto destino = facturado en dólares, Origen = la tarjeta,
+ * Destino cuenta = fecha de corte (si el correo la trae) y Destino nombre = último día de pago (aaaa-mm-dd).
+ * La app no lo muestra como movimiento: actualiza con él lo facturado y la fecha de pago de la tarjeta.
+ */
+function estadoCuenta_(t, a, de) {
+  const fecha = m => m ? m[3] + '-' + m[2] + '-' + m[1] : '';
+  let m, pen, usd, vence, corte = '', banco, nombre;
+  if (de.includes('bcp') && /Estado de Cuenta de tu Tarjeta de Cr[eé]dito/i.test(t)
+      && (m = t.match(/Pago total del mes:?\s*(?:S\/\.?\s*)?([\d,]+\.\d{2})\s*(?:US\$\s*)?([\d,]+\.\d{2})/i))) {
+    pen = numero_(m[1]); usd = numero_(m[2]); banco = 'BCP';
+    vence = fecha(t.match(/ltimo d[ií]a de pago:?\s*(\d{2})\/(\d{2})\/(\d{4})/i));
+    nombre = 'Tarjeta de Crédito ' + (((t.match(/Tarjeta de Cr[eé]dito (\w+) del mes/i) || [])[1]) || 'BCP');
+  } else if (de.includes('scotiabank') && /Estado de Cuenta/i.test(t)
+      && (m = t.match(/Pago del Mes:?\s*S\/\s*([\d,]+\.\d{2})\s*US\$\s*([\d,]+\.\d{2})/i))) {
+    pen = numero_(m[1]); usd = numero_(m[2]); banco = 'Scotiabank';
+    vence = fecha(t.match(/ltimo d[ií]a para pagar:?\s*(\d{2})\/(\d{2})\/(\d{4})/i));
+    corte = fecha(t.match(/Fecha de Facturaci[oó]n:?\s*\d{2}\/\d{2}\/\d{4}\s*al\s*(\d{2})\/(\d{2})\/(\d{4})/i));
+    nombre = 'Tarjeta ' + (((t.match(/Tarjeta (Scotiabank [\w ]+?) El Estado/i) || [])[1]) || 'de Crédito Scotiabank');
+  } else return null;
+  if (!vence) return null;
+  return {
+    tipo: 'estado', desc: 'Estado de cuenta', monto: pen, moneda: 'PEN', montoDestino: usd, monedaDestino: 'USD',
+    origen: cuenta_(banco, '', nombre), destino: cuenta_('', corte, vence),
+  };
 }
 
 /** Correos de Yape (notificaciones@yape.pe): "¡Acabas de yapear exitosamente! Monto de yapeo S/ 13.80 … Nombre del Beneficiario Fatima Zep Nº de operación …" */
