@@ -556,7 +556,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
       <button class="danger-btn" style="margin-bottom:8px" onclick="freshStart()">Empezar de cero desde hoy</button>
       <div style="font-size:10px;color:var(--text3);margin:-2px 2px 12px">Borra todos los movimientos y saldos iniciales, pero conserva tus bancos, cuentas, tarjetas, categorías y presupuestos. Después pones el saldo de cada cuenta y la deuda de cada tarjeta, y desde ese momento todo se suma solo.</div>
       <button class="danger-btn" onclick="clearAll()">Borrar todos los datos</button>
-      <div style="text-align:center;font-size:10px;color:var(--text3);margin-top:14px">finanzas pe · versión 30 · <a href="#" onclick="checkUpdate(true);return false" style="color:inherit">buscar actualización</a></div>
+      <div style="text-align:center;font-size:10px;color:var(--text3);margin-top:14px">finanzas pe · versión 31 · <a href="#" onclick="checkUpdate(true);return false" style="color:inherit">buscar actualización</a></div>
     </div>
   </div>
 
@@ -942,10 +942,13 @@ function findTransferPair(t){
 // Consumos y pagos de una tarjeta. La deuda inicial (lo que se debía antes de registrar) cuenta como un consumo anterior a todo
 function cardTx(i){
   const c=cards[i];
-  const isMine=t=>t.ccName===c.name||(t.ccName===undefined&&t.ccIndex===i);
-  const charges=data.filter(t=>(t.type==='tarjeta'&&isMine(t))||((t.type==='gasto'||t.type==='extra')&&t.method===c.name));
-  const pays=data.filter(t=>t.type==='pago'&&isMine(t));
   const init=c.initDebt||{};
+  // Lo anterior a la deuda que copiaste del banco ya está incluido en ella: no se vuelve a sumar
+  // (del mismo día, solo cuenta lo que se agregó a la app después de guardar la deuda)
+  const after=t=>!init.date||t.date>init.date||(t.date===init.date&&(!init.at||(t.id>1e13?t.id/10:t.id)>init.at));
+  const isMine=t=>(t.ccName===c.name||(t.ccName===undefined&&t.ccIndex===i))&&after(t);
+  const charges=data.filter(t=>((t.type==='tarjeta'&&isMine(t))||((t.type==='gasto'||t.type==='extra')&&t.method===c.name&&after(t))));
+  const pays=data.filter(t=>t.type==='pago'&&isMine(t));
   [['PEN',init.PEN,init.billedPEN],['USD',init.USD,init.billedUSD]].forEach(([cur,total,billed])=>{
     total=+total||0;
     // Deudas iniciales antiguas (sin parte facturada indicada) se toman como ya facturadas
@@ -972,10 +975,21 @@ function cardCycle(i){
   const today=new Date(); today.setHours(0,0,0,0);
   let cut=dayIn(today.getFullYear(),today.getMonth(),C);
   if(cut>=today) cut=dayIn(today.getFullYear(),today.getMonth()-1,C); // el corte de hoy cierra al terminar el día
-  const prevCut=dayIn(cut.getFullYear(),cut.getMonth()-1,C);
-  const nextCut=dayIn(cut.getFullYear(),cut.getMonth()+1,C);
+  let prevCut=dayIn(cut.getFullYear(),cut.getMonth()-1,C);
+  let nextCut=dayIn(cut.getFullYear(),cut.getMonth()+1,C);
   let due=null;
   if(P>=1&&P<=31){due=dayIn(cut.getFullYear(),cut.getMonth(),P);if(due<=cut) due=dayIn(cut.getFullYear(),cut.getMonth()+1,P)}
+  // Si copiaste del banco cuándo vence lo facturado y es posterior a lo calculado, el banco ya hizo un corte
+  // que la app aún no: lo facturado es lo que copiaste y lo que vino después está por facturar
+  const init=c.initDebt||{}; let manual=false;
+  if(init.due&&init.date&&(!due||init.due>todayStr(due))){
+    manual=true;
+    const d0=new Date(init.date+'T00:00');
+    cut=new Date(d0.getTime()-864e5);
+    prevCut=dayIn(cut.getFullYear(),cut.getMonth()-1,cut.getDate());
+    nextCut=dayIn(d0.getFullYear(),d0.getMonth(),C); if(nextCut<=d0) nextCut=dayIn(d0.getFullYear(),d0.getMonth()+1,C);
+    due=new Date(init.due+'T00:00');
+  }
   const cutS=todayStr(cut);
   const {charges,pays}=cardTx(i);
   const billed={}, pending={};
@@ -985,7 +999,7 @@ function cardCycle(i){
     pending[cur]=Math.max(n-Math.max(p-b,0),0);
   });
   const owes=billed.PEN>=0.01||billed.USD>=0.01;
-  return {cut,prevCut,nextCut,due,cutS,prevCutS:todayStr(prevCut),billed,pending,owes,overdue:owes&&due&&due<today};
+  return {cut,prevCut,nextCut,due,cutS,prevCutS:todayStr(prevCut),billed,pending,owes,manual,overdue:owes&&due&&due<today};
 }
 const twoCur=(o)=>[o.PEN>=0.01?fmtSym(o.PEN,'PEN'):'',o.USD>=0.01?fmtSym(o.USD,'USD'):''].filter(Boolean).join(' + ');
 const shortDate=d=>d.toLocaleDateString('es-PE',{day:'numeric',month:'short'});
@@ -1003,7 +1017,8 @@ function inDays(n){return n===0?'hoy':n===1?'mañana':'en '+n+' días'}
 function cardDatesLabel(c){
   const parts=[];
   if(c.cycle) parts.push('Corte día '+esc(c.cycle));
-  const p=nextDay(c.payDay);
+  const cy=cardCycle(cards.indexOf(c));
+  const p=cy&&cy.owes&&cy.due&&daysUntil(cy.due)>=0?cy.due:nextDay(c.payDay);
   if(p) parts.push('Pago '+p.toLocaleDateString('es-PE',{day:'numeric',month:'short'})+' ('+inDays(daysUntil(p))+')');
   return parts.length?' · '+parts.join(' · '):'';
 }
@@ -1096,7 +1111,7 @@ function renderCC(){
     .sort((a,b)=>b[0].date.localeCompare(a[0].date));
   // Con día de corte: movimientos por estado de cuenta; sin él, por mes del calendario
   const sections=cy
-    ?[[`Por facturar · desde el ${shortDate(new Date(cy.cut.getTime()+864e5))}`,list(cy.cutS,'9999')],
+    ?[[cy.manual?`Por facturar · desde que copiaste la deuda`:`Por facturar · desde el ${shortDate(new Date(cy.cut.getTime()+864e5))}`,list(cy.cutS,'9999')],
       [`Estado de cuenta · ${shortDate(new Date(cy.prevCut.getTime()+864e5))} al ${shortDate(cy.cut)}`,list(cy.prevCutS,cy.cutS)]]
     :[[`Movimientos de ${monthLabel(viewDate)}`,list(mk+'-00',mk+'-99')]];
   el.innerHTML=tabs+`<div class="cc-card">
@@ -1106,7 +1121,7 @@ function renderCC(){
       <div class="cc-dates">${cardDatesLabel(c).replace(/^ · /,'')||'Sin fechas de corte y pago'}</div>
       ${cy?`<div class="cc-cycle">
         <div class="cc-cyc-row">
-          <div><div class="cc-cyc-lbl">Facturado · corte ${shortDate(cy.cut)}</div>
+          <div><div class="cc-cyc-lbl">Facturado${cy.manual?'':' · corte '+shortDate(cy.cut)}</div>
             <div class="cc-cyc-due${cy.overdue?' late':''}">${cy.owes&&cy.due?(cy.overdue?'Venció el '+shortDate(cy.due):'Pagar hasta el '+shortDate(cy.due)+' · '+inDays(daysUntil(cy.due))):'✓ Pagado'}</div></div>
           <div class="cc-cyc-amt">${twoCur(cy.billed)||'S/ 0.00'}</div>
         </div>
@@ -2886,6 +2901,7 @@ function openAccEdit(name,kind,bank,pre){
       `<div class="row2">${aeField('Deuda total S/',`<input id="ae-init-pen" type="number" min="0" step="0.01" inputmode="decimal" value="${(c.initDebt||{}).PEN||''}" placeholder="0.00"/>`)}${aeField('Deuda total US$',`<input id="ae-init-usd" type="number" min="0" step="0.01" inputmode="decimal" value="${(c.initDebt||{}).USD||''}" placeholder="0.00"/>`)}</div>`+
       `<div class="row2">${aeField('De eso, facturado S/',`<input id="ae-billed-pen" type="number" min="0" step="0.01" inputmode="decimal" value="${(c.initDebt||{}).billedPEN??''}" placeholder="0.00"/>`)}${aeField('De eso, facturado US$',`<input id="ae-billed-usd" type="number" min="0" step="0.01" inputmode="decimal" value="${(c.initDebt||{}).billedUSD??''}" placeholder="0.00"/>`)}</div>`+
       `<div class="ae-hint" style="margin-top:-4px">Copia lo que ves en la app del banco: la <b>deuda total</b> y el <b>pago del mes</b> (lo ya facturado que aún no pagas). Si ya pagaste el último estado de cuenta, el facturado es 0. Los movimientos que lleguen después se suman a esto.</div>`+
+      aeField('Lo facturado vence el',`<input id="ae-billed-due" type="date" value="${esc((c.initDebt||{}).due||'')}"/>`,'La fecha de <b>Próximo pago</b> de la app del banco. Así la app sabe a qué estado de cuenta corresponde, aunque el banco corte unos días antes o después.')+
       `<div class="row2">${aeField('Día de corte',`<input id="ae-cycle" type="number" min="1" max="31" inputmode="numeric" value="${esc(c.cycle||'')}" placeholder="Facturación"/>`)}${aeField('Día de pago',`<input id="ae-payday" type="number" min="1" max="31" inputmode="numeric" value="${esc(c.payDay||'')}"/>`)}</div>`+
       aeField('Otros números (opcional)',`<input id="ae-extra" value="${esc((c.extra||[]).join(', '))}" placeholder="Ej: tarjeta adicional"/>`)+
       `<button class="btn-add" onclick="saveAccEdit()">Guardar</button>`+
@@ -2933,12 +2949,20 @@ function saveAccEdit(){
     claim([number,...extra]);
     const day=v=>{const n=parseInt(v);return n>=1&&n<=31?String(n):''};
     Object.assign(c,{bank,number,extra,limitPEN:parseFloat(aeVal('ae-limit'))||0,cycle:day(aeVal('ae-cycle')),payDay:day(aeVal('ae-payday')),
-      initDebt:{PEN:parseFloat(aeVal('ae-init-pen'))||0,USD:parseFloat(aeVal('ae-init-usd'))||0,
-        billedPEN:parseFloat(aeVal('ae-billed-pen'))||0,billedUSD:parseFloat(aeVal('ae-billed-usd'))||0,
-        date:(c.initDebt&&c.initDebt.date)||(syncCfg&&syncCfg.desde)||todayStr()}});
+      initDebt:newInitDebt(c.initDebt)});
   }
   closeAccEdit();
   afterBankChange('✓ Guardado');
+}
+// Deuda copiada del banco: si cambió, desde hoy cuentan solo los movimientos nuevos (los anteriores ya están en esa cifra)
+function newInitDebt(old){
+  const due=/^\d{4}-\d{2}-\d{2}$/.test(aeVal('ae-billed-due'))?aeVal('ae-billed-due'):'';
+  const d={PEN:parseFloat(aeVal('ae-init-pen'))||0,USD:parseFloat(aeVal('ae-init-usd'))||0,
+    billedPEN:parseFloat(aeVal('ae-billed-pen'))||0,billedUSD:parseFloat(aeVal('ae-billed-usd'))||0,due};
+  old=old||{};
+  const same=['PEN','USD','billedPEN','billedUSD'].every(k=>(+old[k]||0)===d[k])&&(old.due||'')===due;
+  if(same&&old.date) return {...d,date:old.date,...(old.at?{at:old.at}:{})};
+  return {...d,date:todayStr(),at:Date.now()};
 }
 function deleteAccEdit(){
   if(!_ae||!_ae.name) return;
@@ -3223,7 +3247,7 @@ if('serviceWorker' in navigator && location.protocol!=='file:'){
 }
 // ─── ACTUALIZACIONES ───
 // Compara con la versión publicada; si hay una más nueva, muestra un aviso para cargarla
-const APP_VERSION=30;
+const APP_VERSION=31;
 async function checkUpdate(manual){
   if(location.protocol==='file:') return;
   try{
