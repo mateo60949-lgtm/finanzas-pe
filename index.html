@@ -556,7 +556,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
       <button class="danger-btn" style="margin-bottom:8px" onclick="freshStart()">Empezar de cero desde hoy</button>
       <div style="font-size:10px;color:var(--text3);margin:-2px 2px 12px">Borra todos los movimientos y saldos iniciales, pero conserva tus bancos, cuentas, tarjetas, categorías y presupuestos. Después pones el saldo de cada cuenta y la deuda de cada tarjeta, y desde ese momento todo se suma solo.</div>
       <button class="danger-btn" onclick="clearAll()">Borrar todos los datos</button>
-      <div style="text-align:center;font-size:10px;color:var(--text3);margin-top:14px">finanzas pe · versión 31 · <a href="#" onclick="checkUpdate(true);return false" style="color:inherit">buscar actualización</a></div>
+      <div style="text-align:center;font-size:10px;color:var(--text3);margin-top:14px">finanzas pe · versión 32 · <a href="#" onclick="checkUpdate(true);return false" style="color:inherit">buscar actualización</a></div>
     </div>
   </div>
 
@@ -946,9 +946,11 @@ function cardTx(i){
   // Lo anterior a la deuda que copiaste del banco ya está incluido en ella: no se vuelve a sumar
   // (del mismo día, solo cuenta lo que se agregó a la app después de guardar la deuda)
   const after=t=>!init.date||t.date>init.date||(t.date===init.date&&(!init.at||(t.id>1e13?t.id/10:t.id)>init.at));
-  const isMine=t=>(t.ccName===c.name||(t.ccName===undefined&&t.ccIndex===i))&&after(t);
-  const charges=data.filter(t=>((t.type==='tarjeta'&&isMine(t))||((t.type==='gasto'||t.type==='extra')&&t.method===c.name&&after(t))));
-  const pays=data.filter(t=>t.type==='pago'&&isMine(t));
+  const isMine=t=>t.ccName===c.name||(t.ccName===undefined&&t.ccIndex===i);
+  // shown: todos los movimientos de la tarjeta, para listarlos (también los ya incluidos en la deuda copiada)
+  const shownCharges=data.filter(t=>(t.type==='tarjeta'&&isMine(t))||((t.type==='gasto'||t.type==='extra')&&t.method===c.name));
+  const shownPays=data.filter(t=>t.type==='pago'&&isMine(t));
+  const charges=shownCharges.filter(after), pays=shownPays.filter(after);
   [['PEN',init.PEN,init.billedPEN],['USD',init.USD,init.billedUSD]].forEach(([cur,total,billed])=>{
     total=+total||0;
     // Deudas iniciales antiguas (sin parte facturada indicada) se toman como ya facturadas
@@ -956,7 +958,7 @@ function cardTx(i){
     if(b>0) charges.push({date:'0000-00-00',amt:b,cur,init:true});
     if(total-b>0) charges.push({date:init.date||'0000-00-00',amt:total-b,cur,init:true});
   });
-  return {charges,pays};
+  return {charges,pays,shownCharges,shownPays,after};
 }
 const sumCur=(list,cur)=>list.filter(t=>(t.cur==='USD'?'USD':'PEN')===cur).reduce((s,t)=>s+t.amt,0);
 // Deuda total de la tarjeta a la fecha: todos los consumos menos todos los pagos
@@ -1076,7 +1078,7 @@ function renderCC(){
         <div class="cc-tab-debt">${esc(debtTxt(cardDebt(k)))}</div></button>`;
     }).join('')}<button class="cc-tab cc-tab-add" onclick="openAccEdit(null,'tarjeta')"><div class="cc-tab-name">+ Tarjeta</div></button></div>`;
 
-  const {charges,pays}=cardTx(i);
+  const {charges,pays,shownCharges,shownPays,after}=cardTx(i);
   const cy=cardCycle(i);
   // Deuda acumulada hasta el mes visto: la deuda no pagada pasa al mes siguiente
   const allCharges=charges.filter(t=>t.date.slice(0,7)<=mk), allPays=pays.filter(t=>t.date.slice(0,7)<=mk);
@@ -1099,20 +1101,20 @@ function renderCC(){
       <select class="cc-drawer-sel" id="cc-pay-from-${cur.toLowerCase()}-${i}">${accountsOpts(cur)}</select>
       <button class="cc-drawer-btn" onclick="payCC(${i},'${cur}')">Pagar</button>
     </div>`;
-  const real=charges.filter(t=>!t.init);
+  const real=shownCharges;
   const movRow=([t,isP])=>`
       <div class="tx-item">
         <div class="tx-icon ${isP?'gasto':'tarjeta'}">${isP?'🔁':'💳'}</div>
-        <div class="tx-info" onclick="openTxModal(${t.id})"><div class="tx-desc">${esc(t.desc)}</div><div class="tx-meta">${isP?'Pago desde '+esc(t.method||''):esc(t.cat||'')} · ${new Date(t.date+'T12:00').toLocaleDateString('es-PE',{day:'numeric',month:'short'})}</div></div>
+        <div class="tx-info" onclick="openTxModal(${t.id})"><div class="tx-desc">${esc(t.desc)}</div><div class="tx-meta">${isP?'Pago desde '+esc(t.method||''):esc(t.cat||'')} · ${new Date(t.date+'T12:00').toLocaleDateString('es-PE',{day:'numeric',month:'short'})}${after(t)?'':' · ya incluido en la deuda que copiaste'}</div></div>
         <div class="tx-right"><div class="tx-amt ${isP?'ingreso':'tarjeta'}">${isP?'+':'−'} ${fmtOrig(t.amt,t.cur)}</div>${t.cur!==displayCur?`<div class="tx-sub">≈ ${fmt(toDisplay(t.amt,t.cur))}</div>`:''}</div>
         <button class="tx-del" onclick="deleteTx(${t.id})">×</button>
       </div>`;
-  const list=(from,to)=>[...real.filter(t=>t.date>from&&t.date<=to).map(t=>[t,false]),...pays.filter(t=>t.date>from&&t.date<=to).map(t=>[t,true])]
+  const list=(from,to)=>[...real.filter(t=>t.date>from&&t.date<=to).map(t=>[t,false]),...shownPays.filter(t=>t.date>from&&t.date<=to).map(t=>[t,true])]
     .sort((a,b)=>b[0].date.localeCompare(a[0].date));
   // Con día de corte: movimientos por estado de cuenta; sin él, por mes del calendario
   const sections=cy
     ?[[cy.manual?`Por facturar · desde que copiaste la deuda`:`Por facturar · desde el ${shortDate(new Date(cy.cut.getTime()+864e5))}`,list(cy.cutS,'9999')],
-      [`Estado de cuenta · ${shortDate(new Date(cy.prevCut.getTime()+864e5))} al ${shortDate(cy.cut)}`,list(cy.prevCutS,cy.cutS)]]
+      [cy.manual?`Estado de cuenta · hasta el ${shortDate(cy.cut)}`:`Estado de cuenta · ${shortDate(new Date(cy.prevCut.getTime()+864e5))} al ${shortDate(cy.cut)}`,list(cy.prevCutS,cy.cutS)]]
     :[[`Movimientos de ${monthLabel(viewDate)}`,list(mk+'-00',mk+'-99')]];
   el.innerHTML=tabs+`<div class="cc-card">
       <div class="cc-bank">${esc(c.bank||'Sin banco')}${c.number?' · T. crédito •••• '+esc(c.number):''}</div>
@@ -3247,7 +3249,7 @@ if('serviceWorker' in navigator && location.protocol!=='file:'){
 }
 // ─── ACTUALIZACIONES ───
 // Compara con la versión publicada; si hay una más nueva, muestra un aviso para cargarla
-const APP_VERSION=31;
+const APP_VERSION=32;
 async function checkUpdate(manual){
   if(location.protocol==='file:') return;
   try{
