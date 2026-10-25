@@ -264,6 +264,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 .bank-add{display:flex;gap:6px;padding-top:9px;border-top:0.5px solid var(--border)}
 .bank-add button{flex:1;padding:6px;font-size:11px;font-weight:600;font-family:'Syne',sans-serif;border:0.5px dashed var(--border2);border-radius:var(--r);background:none;color:var(--text2);cursor:pointer}
 .ae-lbl{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:3px}
+.ae-sec{font-size:12px;font-weight:700;margin:14px 0 8px;padding-top:12px;border-top:1px solid var(--border)}
 .ae-hint{font-size:10px;color:var(--text3);margin-top:3px}
 .ae-check{display:flex;align-items:center;gap:8px;font-size:12px;padding:4px 0}
 .ae-check input{width:16px;height:16px;padding:0;-webkit-appearance:checkbox;appearance:auto;flex-shrink:0}
@@ -556,7 +557,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
       <button class="danger-btn" style="margin-bottom:8px" onclick="freshStart()">Empezar de cero desde hoy</button>
       <div style="font-size:10px;color:var(--text3);margin:-2px 2px 12px">Borra todos los movimientos y saldos iniciales, pero conserva tus bancos, cuentas, tarjetas, categorías y presupuestos. Después pones el saldo de cada cuenta y la deuda de cada tarjeta, y desde ese momento todo se suma solo.</div>
       <button class="danger-btn" onclick="clearAll()">Borrar todos los datos</button>
-      <div style="text-align:center;font-size:10px;color:var(--text3);margin-top:14px">finanzas pe · versión 32 · <a href="#" onclick="checkUpdate(true);return false" style="color:inherit">buscar actualización</a></div>
+      <div style="text-align:center;font-size:10px;color:var(--text3);margin-top:14px">finanzas pe · versión 33 · <a href="#" onclick="checkUpdate(true);return false" style="color:inherit">buscar actualización</a></div>
     </div>
   </div>
 
@@ -981,16 +982,25 @@ function cardCycle(i){
   let nextCut=dayIn(cut.getFullYear(),cut.getMonth()+1,C);
   let due=null;
   if(P>=1&&P<=31){due=dayIn(cut.getFullYear(),cut.getMonth(),P);if(due<=cut) due=dayIn(cut.getFullYear(),cut.getMonth()+1,P)}
-  // Si copiaste del banco cuándo vence lo facturado y es posterior a lo calculado, el banco ya hizo un corte
-  // que la app aún no: lo facturado es lo que copiaste y lo que vino después está por facturar
+  // Hasta el primer corte después de copiar la deuda del banco, manda lo que copiaste: lo facturado es ese
+  // estado de cuenta (el banco corta unos días antes o después del día puesto) y lo demás está por facturar
   const init=c.initDebt||{}; let manual=false;
-  if(init.due&&init.date&&(!due||init.due>todayStr(due))){
-    manual=true;
+  if(init.date&&init.date>'0000-00-00'){
     const d0=new Date(init.date+'T00:00');
-    cut=new Date(d0.getTime()-864e5);
-    prevCut=dayIn(cut.getFullYear(),cut.getMonth()-1,cut.getDate());
-    nextCut=dayIn(d0.getFullYear(),d0.getMonth(),C); if(nextCut<=d0) nextCut=dayIn(d0.getFullYear(),d0.getMonth()+1,C);
-    due=new Date(init.due+'T00:00');
+    // Si se copió la fecha de pago, ese estado de cuenta cerró unas 4 semanas antes
+    const ref=init.due?new Date(Math.max(d0,new Date(init.due+'T00:00').getTime()-28*864e5)):d0;
+    let nc=dayIn(ref.getFullYear(),ref.getMonth(),C); if(nc<=ref) nc=dayIn(ref.getFullYear(),ref.getMonth()+1,C);
+    if(today<=nc){
+      manual=true; nextCut=nc;
+      cut=new Date(d0.getTime()-864e5);
+      prevCut=dayIn(cut.getFullYear(),cut.getMonth()-1,cut.getDate());
+      if(init.due) due=new Date(init.due+'T00:00');
+      else if(P>=1&&P<=31){
+        // Pago del estado de cuenta que cerró antes de copiar la deuda
+        let lc=dayIn(d0.getFullYear(),d0.getMonth(),C); if(lc>d0) lc=dayIn(d0.getFullYear(),d0.getMonth()-1,C);
+        due=dayIn(lc.getFullYear(),lc.getMonth(),P); if(due<=lc) due=dayIn(lc.getFullYear(),lc.getMonth()+1,P);
+      }
+    }
   }
   const cutS=todayStr(cut);
   const {charges,pays}=cardTx(i);
@@ -2899,12 +2909,14 @@ function openAccEdit(name,kind,bank,pre){
       aeField('Nombre',`<input id="ae-name" value="${esc(c.name)}" maxlength="30" placeholder="Ej: Visa Platinum BCP"/>`)+
       `<div class="row2">${aeField('Banco',bankSelect(c.bank))}${aeField('Nº de T. crédito',`<input id="ae-number" value="${esc(c.number||'')}" inputmode="numeric" placeholder="Últimos 4"/>`)}</div>`+
       aeField('Límite de crédito (S/)',`<input id="ae-limit" type="number" min="0" step="0.01" inputmode="decimal" value="${c.limitPEN||''}"/>`)+
-      `<div class="ae-lbl" style="margin-top:4px">Deuda al empezar a registrar</div>`+
+      `<div class="ae-sec">Copia esto de la app de tu banco</div>`+
       `<div class="row2">${aeField('Deuda total S/',`<input id="ae-init-pen" type="number" min="0" step="0.01" inputmode="decimal" value="${(c.initDebt||{}).PEN||''}" placeholder="0.00"/>`)}${aeField('Deuda total US$',`<input id="ae-init-usd" type="number" min="0" step="0.01" inputmode="decimal" value="${(c.initDebt||{}).USD||''}" placeholder="0.00"/>`)}</div>`+
-      `<div class="row2">${aeField('De eso, facturado S/',`<input id="ae-billed-pen" type="number" min="0" step="0.01" inputmode="decimal" value="${(c.initDebt||{}).billedPEN??''}" placeholder="0.00"/>`)}${aeField('De eso, facturado US$',`<input id="ae-billed-usd" type="number" min="0" step="0.01" inputmode="decimal" value="${(c.initDebt||{}).billedUSD??''}" placeholder="0.00"/>`)}</div>`+
-      `<div class="ae-hint" style="margin-top:-4px">Copia lo que ves en la app del banco: la <b>deuda total</b> y el <b>pago del mes</b> (lo ya facturado que aún no pagas). Si ya pagaste el último estado de cuenta, el facturado es 0. Los movimientos que lleguen después se suman a esto.</div>`+
-      aeField('Lo facturado vence el',`<input id="ae-billed-due" type="date" value="${esc((c.initDebt||{}).due||'')}"/>`,'La fecha de <b>Próximo pago</b> de la app del banco. Así la app sabe a qué estado de cuenta corresponde, aunque el banco corte unos días antes o después.')+
-      `<div class="row2">${aeField('Día de corte',`<input id="ae-cycle" type="number" min="1" max="31" inputmode="numeric" value="${esc(c.cycle||'')}" placeholder="Facturación"/>`)}${aeField('Día de pago',`<input id="ae-payday" type="number" min="1" max="31" inputmode="numeric" value="${esc(c.payDay||'')}"/>`)}</div>`+
+      `<div class="ae-hint" style="margin-top:-4px;margin-bottom:10px">Todo lo que debes hoy, facturado o no.</div>`+
+      `<div class="row2">${aeField('Próximo pago S/',`<input id="ae-billed-pen" type="number" min="0" step="0.01" inputmode="decimal" value="${(c.initDebt||{}).billedPEN??''}" placeholder="0.00"/>`)}${aeField('Próximo pago US$',`<input id="ae-billed-usd" type="number" min="0" step="0.01" inputmode="decimal" value="${(c.initDebt||{}).billedUSD??''}" placeholder="0.00"/>`)}</div>`+
+      aeField('Fecha del próximo pago',`<input id="ae-billed-due" type="date" value="${esc((c.initDebt||{}).due||'')}"/>`,'El monto y la fecha que el banco te pide pagar. Si ya pagaste, pon 0.')+
+      `<div class="ae-sec">Fechas de cada mes</div>`+
+      `<div class="row2">${aeField('Día de corte',`<input id="ae-cycle" type="number" min="1" max="31" inputmode="numeric" value="${esc(c.cycle||'')}" placeholder="Ej: 25"/>`)}${aeField('Día de pago',`<input id="ae-payday" type="number" min="1" max="31" inputmode="numeric" value="${esc(c.payDay||'')}" placeholder="Ej: 20"/>`)}</div>`+
+      `<div class="ae-hint" style="margin-top:-4px;margin-bottom:10px">Aproximados, sirven para los meses siguientes. Lo que acabas de copiar del banco manda hasta el próximo corte. Los consumos que lleguen desde hoy se suman solos.</div>`+
       aeField('Otros números (opcional)',`<input id="ae-extra" value="${esc((c.extra||[]).join(', '))}" placeholder="Ej: tarjeta adicional"/>`)+
       `<button class="btn-add" onclick="saveAccEdit()">Guardar</button>`+
       (name?`<button class="danger-btn" onclick="deleteAccEdit()">Eliminar tarjeta</button>`:'');
@@ -3249,7 +3261,7 @@ if('serviceWorker' in navigator && location.protocol!=='file:'){
 }
 // ─── ACTUALIZACIONES ───
 // Compara con la versión publicada; si hay una más nueva, muestra un aviso para cargarla
-const APP_VERSION=32;
+const APP_VERSION=33;
 async function checkUpdate(manual){
   if(location.protocol==='file:') return;
   try{
