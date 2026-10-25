@@ -556,7 +556,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
       <button class="danger-btn" style="margin-bottom:8px" onclick="freshStart()">Empezar de cero desde hoy</button>
       <div style="font-size:10px;color:var(--text3);margin:-2px 2px 12px">Borra todos los movimientos y saldos iniciales, pero conserva tus bancos, cuentas, tarjetas, categorías y presupuestos. Después pones el saldo de cada cuenta y la deuda de cada tarjeta, y desde ese momento todo se suma solo.</div>
       <button class="danger-btn" onclick="clearAll()">Borrar todos los datos</button>
-      <div style="text-align:center;font-size:10px;color:var(--text3);margin-top:14px">finanzas pe · versión 29 · <a href="#" onclick="checkUpdate(true);return false" style="color:inherit">buscar actualización</a></div>
+      <div style="text-align:center;font-size:10px;color:var(--text3);margin-top:14px">finanzas pe · versión 30 · <a href="#" onclick="checkUpdate(true);return false" style="color:inherit">buscar actualización</a></div>
     </div>
   </div>
 
@@ -1714,8 +1714,16 @@ async function downloadFile(name,content,type){
   setTimeout(()=>URL.revokeObjectURL(a.href),1000);
   return true;
 }
+// Identifica este dispositivo en la copia de la nube (no empieza con fp_: no viaja dentro de los datos)
+function deviceId(){
+  let id=null;
+  try{id=localStorage.getItem('ui_device'); if(!id){id=Math.random().toString(36).slice(2,10)+Date.now().toString(36);localStorage.setItem('ui_device',id)}}catch(e){}
+  return id||'';
+}
+// Claves que se guardan como texto simple, no JSON
+const PLAIN_KEYS=new Set(['fp_rate_at','fp_last_backup']);
 function backupPayload(){
-  const payload={app:'finanzas-pe',version:DATA_VERSION,exportedAt:new Date().toISOString(),data:{}};
+  const payload={app:'finanzas-pe',version:DATA_VERSION,exportedAt:new Date().toISOString(),device:deviceId(),data:{}};
   Object.keys(localStorage)
     .filter(k=>k.startsWith('fp_')&&k!=='fp_last_backup')
     .forEach(k=>payload.data[k]=localStorage.getItem(k));
@@ -1744,7 +1752,7 @@ function restoreBackup(text){
   if(!b||b.app!=='finanzas-pe'||!b.data||typeof b.data!=='object'){toast('El archivo no es una copia de finanzas pe');return}
   if((b.version||1)>DATA_VERSION){toast('La copia es de una versión más nueva de la app');return}
   const entries=Object.entries(b.data).filter(([k,v])=>k.startsWith('fp_')&&typeof v==='string');
-  try{entries.forEach(([,v])=>JSON.parse(v))}catch(e){toast('La copia está dañada');return}
+  try{entries.forEach(([k,v])=>{if(!PLAIN_KEYS.has(k))JSON.parse(v)})}catch(e){toast('La copia está dañada');return}
   let n=0;
   try{n=JSON.parse(b.data.fp_tx||'[]').length}catch(e){}
   const when=b.exportedAt?new Date(b.exportedAt):null;
@@ -2094,7 +2102,7 @@ function applyInvImport(b){
 let syncCfg = load('fp_sync', null);
 let inbox = load('fp_inbox', []);
 let accMap = load('fp_acc_map', {});
-let _restoring = false, _backupTimer = null, _syncing = false;
+let _restoring = false, _backupTimer = null, _syncing = false, _pushing = false, _pushAgain = false;
 
 function saveSyncState(){
   try{
@@ -2196,18 +2204,23 @@ async function cloudHead(){
   if(!j.ok||!j.respaldo) return null;
   const b=JSON.parse(j.respaldo); let n=0;
   try{n=JSON.parse(b.data.fp_tx||'[]').length}catch(e){}
-  return {exportedAt:b.exportedAt,n};
+  return {exportedAt:b.exportedAt,device:b.device||'',n};
 }
 async function pushCloudBackup(force){
   clearTimeout(_backupTimer); _backupTimer=null;
   const ep=syncEndpoint();
   if(!ep||_restoring||(syncCfg.cloudConflict&&!force)) return;
+  // Una subida a la vez: si llega otra mientras tanto, se hace al terminar esta
+  if(_pushing){_pushAgain=true;return}
+  _pushing=true;
   try{
     // Antes de subir: si otro dispositivo guardó una copia más nueva, no se pisa; se pregunta en Inicio
     const head=await cloudHead();
     if(head&&!force&&head.exportedAt!==syncCfg.cloudBase){
       // Dispositivos de antes de esta versión: si la copia de la nube la subió este mismo, se reconoce por la hora
-      const mine=!syncCfg.cloudBase&&syncCfg.cloudAt&&Math.abs(new Date(syncCfg.cloudAt)-new Date(head.exportedAt))<12e4;
+      // La subió este mismo dispositivo (aunque no le llegara la respuesta, p. ej. si iOS cerró la app): no es conflicto
+      const mine=(head.device&&head.device===deviceId())
+        ||(!syncCfg.cloudBase&&syncCfg.cloudAt&&Math.abs(new Date(syncCfg.cloudAt)-new Date(head.exportedAt))<12e4);
       if(!mine){syncCfg.cloudConflict={fecha:head.exportedAt,n:head.n};saveSyncState();renderDash();return}
     }
     const payload=backupPayload();
@@ -2222,6 +2235,9 @@ async function pushCloudBackup(force){
   }catch(e){
     // Sin conexión o error del script: se avisa en Inicio y se reintenta en el próximo cambio o al sincronizar
     if(navigator.onLine&&syncCfg){syncCfg.cloudError=true;saveSyncState();renderDash()}
+  }finally{
+    _pushing=false;
+    if(_pushAgain){_pushAgain=false;scheduleCloudBackup(1000)}
   }
 }
 function keepThisDevice(){
@@ -3207,7 +3223,7 @@ if('serviceWorker' in navigator && location.protocol!=='file:'){
 }
 // ─── ACTUALIZACIONES ───
 // Compara con la versión publicada; si hay una más nueva, muestra un aviso para cargarla
-const APP_VERSION=29;
+const APP_VERSION=30;
 async function checkUpdate(manual){
   if(location.protocol==='file:') return;
   try{

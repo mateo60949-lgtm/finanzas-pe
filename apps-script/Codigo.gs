@@ -16,6 +16,7 @@ const CONFIG = {
     'alertas@scotiabank.com.pe',
     'bancadigital@scotiabank.com.pe',
     'bankofamerica.com',
+    'notificaciones@yape.pe',
   ],
   DIAS_INICIALES: 180,     // en la primera lectura, cuántos días hacia atrás
   HOJA_MOV: 'Movimientos',
@@ -207,7 +208,7 @@ function cuenta_(banco, cuenta, nombre) { return { banco: banco || '', cuenta: c
 const NADA = cuenta_();
 const EFECTIVO = cuenta_('Efectivo', 'efectivo', 'Efectivo');
 
-const IGNORAR = /rechaz|visualizaci|configuraci|estado de cuenta|c[oó]digo de verificaci|dispositivo|actualizaste|viabcp|dep[oó]sito a plazo|cuenta power|bienvenid|encuesta|token|clave|activaci[oó]n|bloqueo|desbloqueo|afiliaci/i;
+const IGNORAR = /rechaz|visualizaci|configuraci|estado de cuenta|c[oó]digo de verificaci|dispositivo|actualizaste|viabcp|dep[oó]sito a plazo|cuenta power|bienvenid|encuesta|token|clave|activaci[oó]n|bloqueo|desbloqueo|afiliaci|cambios en monto/i;
 
 /**
  * Convierte un correo en movimiento.
@@ -225,9 +226,21 @@ function parsearCorreo(remitente, asunto, cuerpo, fecha) {
   const r = de.includes('bcp') ? bcp_(t, a)
     : de.includes('scotiabank') ? scotiabank_(t, a)
     : de.includes('bankofamerica') ? bofa_(t, a)
+    : de.includes('yape.pe') ? yape_(t, a)
     : null;
   if (r) return Object.assign(base, r);
   return IGNORAR.test(a) ? { ignorar: true } : null;
+}
+
+/** Correos de Yape (notificaciones@yape.pe): "¡Acabas de yapear exitosamente! Monto de yapeo S/ 13.80 … Nombre del Beneficiario Fatima Zep Nº de operación …" */
+function yape_(t, a) {
+  const m = buscar_(t, new RegExp('Acabas de yapear exitosamente.{0,40}?Monto de yapeo\\s*' + MONTO, 'i'));
+  if (!m) return null;
+  const quien = (buscar_(t, /Nombre del Beneficiario\s+(.+?)\s+N[º°o]\.? de operaci/i) || [])[1] || '';
+  return {
+    tipo: 'gasto', desc: quien ? 'Yape a ' + titulo_(quien) : 'Yape', monto: numero_(m[2]), moneda: moneda_(m[1]),
+    origen: cuenta_('BCP', 'yape', 'Yape'),
+  };
 }
 
 function bcp_(t, a) {
