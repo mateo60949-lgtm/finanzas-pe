@@ -557,7 +557,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
       <button class="danger-btn" style="margin-bottom:8px" onclick="freshStart()">Empezar de cero desde hoy</button>
       <div style="font-size:10px;color:var(--text3);margin:-2px 2px 12px">Borra todos los movimientos y saldos iniciales, pero conserva tus bancos, cuentas, tarjetas, categorías y presupuestos. Después pones el saldo de cada cuenta y la deuda de cada tarjeta, y desde ese momento todo se suma solo.</div>
       <button class="danger-btn" onclick="clearAll()">Borrar todos los datos</button>
-      <div style="text-align:center;font-size:10px;color:var(--text3);margin-top:14px">finanzas pe · versión 33 · <a href="#" onclick="checkUpdate(true);return false" style="color:inherit">buscar actualización</a></div>
+      <div style="text-align:center;font-size:10px;color:var(--text3);margin-top:14px">finanzas pe · versión 34 · <a href="#" onclick="checkUpdate(true);return false" style="color:inherit">buscar actualización</a></div>
     </div>
   </div>
 
@@ -1123,8 +1123,8 @@ function renderCC(){
     .sort((a,b)=>b[0].date.localeCompare(a[0].date));
   // Con día de corte: movimientos por estado de cuenta; sin él, por mes del calendario
   const sections=cy
-    ?[[cy.manual?`Por facturar · desde que copiaste la deuda`:`Por facturar · desde el ${shortDate(new Date(cy.cut.getTime()+864e5))}`,list(cy.cutS,'9999')],
-      [cy.manual?`Estado de cuenta · hasta el ${shortDate(cy.cut)}`:`Estado de cuenta · ${shortDate(new Date(cy.prevCut.getTime()+864e5))} al ${shortDate(cy.cut)}`,list(cy.prevCutS,cy.cutS)]]
+    ?[[`Compras nuevas · se cobran en el próximo estado de cuenta`,list(cy.cutS,'9999')],
+      [cy.manual?`Estado de cuenta actual · hasta el ${shortDate(cy.cut)}`:`Estado de cuenta actual · ${shortDate(new Date(cy.prevCut.getTime()+864e5))} al ${shortDate(cy.cut)}`,list(cy.prevCutS,cy.cutS)]]
     :[[`Movimientos de ${monthLabel(viewDate)}`,list(mk+'-00',mk+'-99')]];
   el.innerHTML=tabs+`<div class="cc-card">
       <div class="cc-bank">${esc(c.bank||'Sin banco')}${c.number?' · T. crédito •••• '+esc(c.number):''}</div>
@@ -1138,7 +1138,7 @@ function renderCC(){
           <div class="cc-cyc-amt">${twoCur(cy.billed)||'S/ 0.00'}</div>
         </div>
         <div class="cc-cyc-row soft">
-          <div><div class="cc-cyc-lbl">Por facturar · cierra ${shortDate(cy.nextCut)}</div></div>
+          <div><div class="cc-cyc-lbl">Compras nuevas · se facturan el ${shortDate(cy.nextCut)}</div></div>
           <div class="cc-cyc-amt">${twoCur(cy.pending)||'S/ 0.00'}</div>
         </div>
       </div>`:''}
@@ -3261,7 +3261,7 @@ if('serviceWorker' in navigator && location.protocol!=='file:'){
 }
 // ─── ACTUALIZACIONES ───
 // Compara con la versión publicada; si hay una más nueva, muestra un aviso para cargarla
-const APP_VERSION=33;
+const APP_VERSION=34;
 async function checkUpdate(manual){
   if(location.protocol==='file:') return;
   try{
