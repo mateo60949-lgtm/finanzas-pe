@@ -412,6 +412,9 @@ function doGet(e) {
   if (e.parameter.accion === 'historico') {
     return json_({ ok: true, cierres: historicos_(String(e.parameter.pares || '').split(',')) });
   }
+  if (e.parameter.accion === 'serie') {
+    return json_({ ok: true, series: series_(String(e.parameter.tickers || '').split(','), String(e.parameter.desde || '')) });
+  }
   if (e.parameter.accion === 'precios') {
     return json_({ ok: true, precios: precios_(String(e.parameter.tickers || '').split(',')) });
   }
@@ -514,6 +517,37 @@ function historicos_(pares) {
   (m > 0 ? h.getRange(2, 1, m, 2).getValues() : []).forEach(f => {
     const k = String(f[0]).toUpperCase();
     if (pedidos.includes(k)) out[k] = typeof f[1] === 'number' && f[1] > 0 ? f[1] : null;
+  });
+  return out;
+}
+
+/**
+ * Cierres diarios de cada ticker desde una fecha, para el gráfico de rentabilidad de la app.
+ * Usa la pestaña "Series" como borrador: cada ticker ocupa dos columnas con su fórmula GOOGLEFINANCE.
+ */
+function series_(tickers, desde) {
+  const pedidos = [...new Set(tickers.map(t => String(t).trim().toUpperCase()).filter(t => /^[A-Z0-9.:\-]{1,20}$/.test(t)))].slice(0, 12);
+  const f = /^(\d{4})-(\d{2})-(\d{2})$/.exec(desde);
+  if (!pedidos.length || !f) return {};
+  const ss = SpreadsheetApp.getActive();
+  const h = ss.getSheetByName('Series') || ss.insertSheet('Series');
+  h.clear();
+  const inicio = 'DATE(' + Number(f[1]) + ',' + Number(f[2]) + ',' + Number(f[3]) + ')';
+  pedidos.forEach((t, i) => h.getRange(1, 2 * i + 1).setFormula('=IFERROR(GOOGLEFINANCE("' + t + '","close",' + inicio + ',TODAY(),"DAILY"),"")'));
+  // GOOGLEFINANCE tarda un poco la primera vez: se espera hasta que todas las columnas tengan datos
+  let filas = [];
+  for (let intento = 0; intento < 6; intento++) {
+    SpreadsheetApp.flush();
+    const n = h.getLastRow();
+    filas = n > 0 ? h.getRange(1, 1, n, 2 * pedidos.length).getValues() : [];
+    if (filas.length > 1 && pedidos.every((t, i) => filas[1][2 * i] instanceof Date || filas[0][2 * i] === '')) break;
+    Utilities.sleep(1500);
+  }
+  const out = {};
+  pedidos.forEach((t, i) => {
+    out[t] = filas.slice(1)
+      .filter(r => r[2 * i] instanceof Date && typeof r[2 * i + 1] === 'number' && r[2 * i + 1] > 0)
+      .map(r => [Utilities.formatDate(r[2 * i], CONFIG.ZONA, 'yyyy-MM-dd'), r[2 * i + 1]]);
   });
   return out;
 }
