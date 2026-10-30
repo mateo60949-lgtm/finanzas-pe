@@ -581,7 +581,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
       <button class="danger-btn" style="margin-bottom:8px" onclick="freshStart()">Empezar de cero desde hoy</button>
       <div style="font-size:10px;color:var(--text3);margin:-2px 2px 12px">Borra todos los movimientos y saldos iniciales, pero conserva tus bancos, cuentas, tarjetas, categorías y presupuestos. Después pones el saldo de cada cuenta y la deuda de cada tarjeta, y desde ese momento todo se suma solo.</div>
       <button class="danger-btn" onclick="clearAll()">Borrar todos los datos</button>
-      <div style="text-align:center;font-size:10px;color:var(--text3);margin-top:14px">finanzas pe · versión 36 · <a href="#" onclick="checkUpdate(true);return false" style="color:inherit">buscar actualización</a></div>
+      <div style="text-align:center;font-size:10px;color:var(--text3);margin-top:14px">finanzas pe · versión 37 · <a href="#" onclick="checkUpdate(true);return false" style="color:inherit">buscar actualización</a></div>
     </div>
   </div>
 
@@ -2748,11 +2748,35 @@ function renderOwed(){
     <div class="ib-share-hint">Si te devuelven por Yape o transferencia, elige el gasto al confirmar ese ingreso en Por revisar.</div>
   </div>`;
 }
+// "Ya me pagó": registra la devolución en la cuenta donde entró la plata (sube su saldo, pero no cuenta como ingreso del mes)
 function markOwedDone(id){
   const t=data.find(x=>x.id===id);
   if(!t||!t.owed) return;
-  if(!confirm(`¿${t.owed.who||'Te'} ya te pagó ${fmtOrig(owedLeft(t),t.cur)}?\n\nÚsalo si te pagaron en efectivo o por fuera de tus cuentas. Si te yapearon, mejor elige este gasto al confirmar el yapeo en Por revisar.`)) return;
-  t.owed.done=true; save(); render(); toast('✓ Marcado como pagado');
+  const left=owedLeft(t), sym=t.cur==='USD'?'US$':'S/';
+  // Por defecto, la cuenta con Yape
+  const def=ACCOUNTS.find(a=>accMeta&&accMeta[a]&&accMeta[a].yape)||ACCOUNTS[0]||'';
+  _ae={kind:'owedpay',id};
+  document.getElementById('ae-title').textContent=(t.owed.who||'Alguien')+' te pagó';
+  document.getElementById('ae-body').innerHTML=
+    `<div class="cfg-sub" style="margin-bottom:10px">${esc(t.desc)} · ${shortDate(new Date(t.date+'T12:00'))} · faltaba ${fmtOrig(left,t.cur)}</div>`+
+    `<div class="row2">${aeField('Monto '+sym,`<input id="ae-amount" type="number" min="0" step="0.01" inputmode="decimal" value="${left.toFixed(2)}"/>`)}${aeField('Fecha',`<input id="ae-date" type="date" value="${todayStr()}"/>`)}</div>`+
+    aeField('¿A qué cuenta te pasaron la plata?',`<select id="ae-acc">${ACCOUNTS.map(a=>`<option${a===def?' selected':''}>${esc(a)}</option>`).join('')}<option value="">A ninguna (solo marcar como pagado)</option></select>`,
+      'El saldo de esa cuenta sube, pero no cuenta como ingreso del mes: es plata que te devolvieron.')+
+    `<button class="btn-add" onclick="saveOwedPay()">Guardar</button>`;
+  document.getElementById('ae-modal').classList.add('show');
+}
+function saveOwedPay(){
+  const t=data.find(x=>x.id===_ae.id);
+  if(!t) return;
+  const amt=parseFloat(aeVal('ae-amount')), date=aeVal('ae-date')||todayStr(), acc=aeVal('ae-acc');
+  if(!acc){t.owed.done=true;save();closeAccEdit();render();toast('✓ Marcado como pagado');return}
+  if(!(amt>0)){toast('Pon el monto');return}
+  // El movimiento va en la moneda de la cuenta
+  const cur=accCur(acc)==='USD'?'USD':'PEN';
+  const v=cur===t.cur?amt:cur==='USD'?toUSD(amt,t.cur):toPEN(amt,t.cur);
+  data.push({id:Date.now(),type:'ingreso',desc:'Te devolvió '+(t.owed.who||'alguien'),amt:Math.round(v*100)/100,cur,date,method:acc,cat:'Reembolso',reimb:t.id});
+  save(); closeAccEdit(); render();
+  toast(owedLeft(t)>=0.005?'✓ Registrado · aún falta '+fmtOrig(owedLeft(t),t.cur):'✓ Pagado completo');
 }
 function timeAgo(iso){
   const min=Math.round((Date.now()-new Date(iso))/6e4);
@@ -3572,7 +3596,7 @@ if('serviceWorker' in navigator && location.protocol!=='file:'){
 }
 // ─── ACTUALIZACIONES ───
 // Compara con la versión publicada; si hay una más nueva, muestra un aviso para cargarla
-const APP_VERSION=36;
+const APP_VERSION=37;
 async function checkUpdate(manual){
   if(location.protocol==='file:') return;
   try{
