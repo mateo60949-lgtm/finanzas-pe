@@ -99,7 +99,7 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text);displa
 .qbtn{padding:5px 10px;font-size:11px;font-family:'Syne',sans-serif;font-weight:500;border:0.5px solid var(--border2);border-radius:14px;cursor:pointer;background:transparent;color:var(--text2);transition:all 0.1s}
 .qbtn:active{background:var(--surface2)}
 .fields{display:flex;flex-direction:column;gap:7px}
-.row2{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+.row2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:7px}
 input,select,textarea{width:100%;padding:9px 11px;font-size:13px;font-family:'Syne',sans-serif;border:0.5px solid var(--border2);border-radius:var(--r);background:var(--bg);color:var(--text);outline:none;-webkit-appearance:none;appearance:none;transition:border-color 0.12s,background 0.12s}
 input:focus,select:focus{border-color:var(--text);background:var(--surface)}
 select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%236B6860'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;padding-right:28px}
@@ -223,13 +223,13 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
 .dash-section-title{font-size:10px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.07em;margin-bottom:8px}
 
 /* Accounts grid */
-.accounts-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:10px}
-.acc-card{background:var(--surface);border:0.5px solid var(--border);border-radius:var(--r);padding:12px;cursor:pointer;transition:border-color 0.12s}
+.accounts-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:7px;margin-bottom:10px}
+.acc-card{min-width:0;background:var(--surface);border:0.5px solid var(--border);border-radius:var(--r);padding:12px;cursor:pointer;transition:border-color 0.12s}
 .acc-card:active{background:var(--surface2)}
-.acc-card-name{font-size:10px;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.acc-card-bal{font-family:'DM Mono',monospace;font-size:15px;font-weight:500}
+.acc-card-name{font-size:10px;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px;overflow-wrap:anywhere}
+.acc-card-bal{font-family:'DM Mono',monospace;font-size:15px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .acc-card-bal.neg{color:var(--red)}
-.acc-card-sub{font-size:9px;color:var(--text3);font-family:'DM Mono',monospace;margin-top:2px}
+.acc-card-sub{font-size:9px;color:var(--text3);font-family:'DM Mono',monospace;margin-top:2px;overflow-wrap:anywhere}
 
 /* Modal */
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:500;display:flex;align-items:flex-end;opacity:0;pointer-events:none;transition:opacity 0.2s}
@@ -581,7 +581,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
       <button class="danger-btn" style="margin-bottom:8px" onclick="freshStart()">Empezar de cero desde hoy</button>
       <div style="font-size:10px;color:var(--text3);margin:-2px 2px 12px">Borra todos los movimientos y saldos iniciales, pero conserva tus bancos, cuentas, tarjetas, categorías y presupuestos. Después pones el saldo de cada cuenta y la deuda de cada tarjeta, y desde ese momento todo se suma solo.</div>
       <button class="danger-btn" onclick="clearAll()">Borrar todos los datos</button>
-      <div style="text-align:center;font-size:10px;color:var(--text3);margin-top:14px">finanzas pe · versión 37 · <a href="#" onclick="checkUpdate(true);return false" style="color:inherit">buscar actualización</a></div>
+      <div style="text-align:center;font-size:10px;color:var(--text3);margin-top:14px">finanzas pe · versión 38 · <a href="#" onclick="checkUpdate(true);return false" style="color:inherit">buscar actualización</a></div>
     </div>
   </div>
 
@@ -3596,7 +3596,7 @@ if('serviceWorker' in navigator && location.protocol!=='file:'){
 }
 // ─── ACTUALIZACIONES ───
 // Compara con la versión publicada; si hay una más nueva, muestra un aviso para cargarla
-const APP_VERSION=37;
+const APP_VERSION=38;
 async function checkUpdate(manual){
   if(location.protocol==='file:') return;
   try{
