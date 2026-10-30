@@ -540,16 +540,22 @@ function series_(tickers, desde) {
     SpreadsheetApp.flush();
     const n = h.getLastRow();
     filas = n > 0 ? h.getRange(1, 1, n, 2 * pedidos.length).getValues() : [];
-    if (filas.length > 1 && pedidos.every((t, i) => filas[1][2 * i] instanceof Date || filas[0][2 * i] === '')) break;
+    if (filas.length > 1 && pedidos.every((t, i) => diaSerie_(filas[1][2 * i]) || filas[0][2 * i] === '')) break;
     Utilities.sleep(1500);
   }
   const out = {};
   pedidos.forEach((t, i) => {
     out[t] = filas.slice(1)
-      .filter(r => r[2 * i] instanceof Date && typeof r[2 * i + 1] === 'number' && r[2 * i + 1] > 0)
-      .map(r => [Utilities.formatDate(r[2 * i], CONFIG.ZONA, 'yyyy-MM-dd'), r[2 * i + 1]]);
+      .filter(r => diaSerie_(r[2 * i]) && typeof r[2 * i + 1] === 'number' && r[2 * i + 1] > 0)
+      .map(r => [diaSerie_(r[2 * i]), r[2 * i + 1]]);
   });
   return out;
+}
+/** Fecha de una fila de GOOGLEFINANCE como aaaa-mm-dd. Dentro de IFERROR llega como número de serie (45883.67), no como fecha. */
+function diaSerie_(v) {
+  if (v instanceof Date) return Utilities.formatDate(v, CONFIG.ZONA, 'yyyy-MM-dd');
+  if (typeof v === 'number' && v > 20000) return Utilities.formatDate(new Date((Math.floor(v) - 25569) * 864e5), 'UTC', 'yyyy-MM-dd');
+  return '';
 }
 
 // Monedas (CURRENCY:USDPEN) se piden sin atributo; acciones y ETFs con "price"
