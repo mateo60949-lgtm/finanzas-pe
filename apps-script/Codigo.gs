@@ -19,6 +19,7 @@ const CONFIG = {
     'notificaciones@yape.pe',
     'estadodecuenta@notificacionesbcp.com.pe',
     'avisos@scotiabank.com.pe',
+    'comprobante-electronico@notificacionesbcp.com.pe',
   ],
   DIAS_INICIALES: 180,     // en la primera lectura, cuántos días hacia atrás
   HOJA_MOV: 'Movimientos',
@@ -116,6 +117,7 @@ function procesarCorreos() {
     const props = PropertiesService.getScriptProperties();
     const hMov = hoja_(CONFIG.HOJA_MOV, COLS_MOV);
     const hRev = hoja_(CONFIG.HOJA_REV, COLS_REV);
+    reintentarRevisar_(hMov, hRev);
     const vistos = new Set([...idsDe_(hMov), ...idsDe_(hRev)]);
 
     // Desde la última lectura (con 3 días de margen) o, la primera vez, DIAS_INICIALES atrás
@@ -159,6 +161,33 @@ function procesarCorreos() {
   } finally {
     lock.releaseLock();
   }
+}
+
+/**
+ * Vuelve a leer los correos que quedaron en "Revisar": si una regla nueva ya los entiende,
+ * pasan a Movimientos (o se quitan si son avisos sin dinero). Así no hace falta releer todo.
+ */
+function reintentarRevisar_(hMov, hRev) {
+  const n = hRev.getLastRow() - 1;
+  if (n < 1) return;
+  const filas = hRev.getRange(2, 1, n, COLS_REV.length).getValues();
+  const quedan = [], nuevos = [];
+  const ahora = Utilities.formatDate(new Date(), CONFIG.ZONA, 'yyyy-MM-dd HH:mm');
+  filas.forEach(f => {
+    let msg = null;
+    try { msg = GmailApp.getMessageById(String(f[0])); } catch (e) {}
+    const r = msg ? parsearCorreo(msg.getFrom(), msg.getSubject(), msg.getPlainBody(), msg.getDate()) : null;
+    if (!r) { quedan.push(f); return; }
+    if (r.ignorar) return;
+    nuevos.push([String(f[0]), r.fecha, r.hora, r.tipo, r.desc, r.monto, r.moneda,
+      r.origen.banco, r.origen.cuenta, r.origen.nombre, r.destino.banco, r.destino.cuenta, r.destino.nombre,
+      r.montoDestino || '', r.monedaDestino || '', r.confianza, msg.getSubject(), ahora]);
+  });
+  if (quedan.length === filas.length) return;
+  if (nuevos.length) hMov.getRange(hMov.getLastRow() + 1, 1, nuevos.length, COLS_MOV.length).setNumberFormat('@').setValues(nuevos);
+  // Se reescribe la lista en vez de borrar filas (Google no deja borrar todas las filas bajo el encabezado fijo)
+  hRev.getRange(2, 1, n, COLS_REV.length).clearContent();
+  if (quedan.length) hRev.getRange(2, 1, quedan.length, COLS_REV.length).setValues(quedan);
 }
 
 function idsDe_(hoja) {
@@ -210,7 +239,7 @@ function cuenta_(banco, cuenta, nombre) { return { banco: banco || '', cuenta: c
 const NADA = cuenta_();
 const EFECTIVO = cuenta_('Efectivo', 'efectivo', 'Efectivo');
 
-const IGNORAR = /rechaz|visualizaci|configuraci|estado de cuenta|c[oó]digo de verificaci|dispositivo|actualizaste|viabcp|dep[oó]sito a plazo|cuenta power|bienvenid|encuesta|token|clave|activaci[oó]n|bloqueo|desbloqueo|afiliaci|cambios en monto/i;
+const IGNORAR = /rechaz|visualizaci|configuraci|estado de cuenta|c[oó]digo de verificaci|dispositivo|actualizaste|viabcp|dep[oó]sito a plazo|cuenta power|bienvenid|encuesta|token|clave|activaci[oó]n|bloqueo|desbloqueo|afiliaci|cambios en monto|compra de .{1,60} fue exitosa/i;
 
 /**
  * Convierte un correo en movimiento.
@@ -266,7 +295,23 @@ function estadoCuenta_(t, a, de) {
 
 /** Correos de Yape (notificaciones@yape.pe): "¡Acabas de yapear exitosamente! Monto de yapeo S/ 13.80 … Nombre del Beneficiario Fatima Zep Nº de operación …" */
 function yape_(t, a) {
-  const m = buscar_(t, new RegExp('Acabas de yapear exitosamente.{0,40}?Monto de yapeo\\s*' + MONTO, 'i'));
+  let m;
+  // Pago de un servicio (RENIEC, luz, agua…): "¡Tu servicio fue yapeado con éxito! Monto total S/ 30.00 … Empresa: RENIEC Servicio: …"
+  if ((m = buscar_(t, new RegExp('servicio fue yapeado con [eé]xito.{0,40}?Monto total\\s*' + MONTO, 'i')))) {
+    const empresa = (buscar_(t, /Empresa:?\s*(.+?)\s+Servicio:/i) || [])[1] || '';
+    return {
+      tipo: 'gasto', desc: 'Pago con Yape' + (empresa ? ' a ' + titulo_(empresa) : ''), monto: numero_(m[2]), moneda: moneda_(m[1]),
+      origen: cuenta_('BCP', 'yape', 'Yape'),
+    };
+  }
+  // Compra en Yape Promos. Llega junto con "Tu compra de <comercio> fue exitosa", que es la misma compra y se ignora
+  if ((m = buscar_(t, new RegExp('pago en Yape Promos fue exitoso.{0,40}?Monto total\\s*' + MONTO, 'i')))) {
+    return {
+      tipo: 'gasto', desc: 'Yape Promos', monto: numero_(m[2]), moneda: moneda_(m[1]),
+      origen: cuenta_('BCP', 'yape', 'Yape'),
+    };
+  }
+  m = buscar_(t, new RegExp('Acabas de yapear exitosamente.{0,40}?Monto de yapeo\\s*' + MONTO, 'i'));
   if (!m) return null;
   const quien = (buscar_(t, /Nombre del Beneficiario\s+(.+?)\s+N[º°o]\.? de operaci/i) || [])[1] || '';
   return {
@@ -277,6 +322,13 @@ function yape_(t, a) {
 
 function bcp_(t, a) {
   let m;
+  // Boleta de intereses y comisiones del mes: no dice de qué producto, así que se elige la cuenta al confirmar
+  if ((m = buscar_(t, new RegExp('pagos de intereses y comisiones.{0,700}?Monto\\s*' + MONTO, 'i')))) {
+    return {
+      tipo: 'gasto', desc: 'Intereses y comisiones BCP', monto: numero_(m[2]), moneda: moneda_(m[1]),
+      origen: cuenta_('BCP', '', 'Cuenta o tarjeta BCP'), confianza: 'baja',
+    };
+  }
   // Consumo con tarjeta de crédito o débito
   if ((m = buscar_(t, new RegExp('Realizaste un consumo de ' + MONTO + ' con tu Tarjeta de (Cr[eé]dito|D[eé]bito) BCP en (.+?)\\. Por tu seguridad', 'i')))) {
     const credito = /^cr/i.test(m[3]);
