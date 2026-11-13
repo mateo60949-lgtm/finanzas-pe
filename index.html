@@ -581,7 +581,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
       <button class="danger-btn" style="margin-bottom:8px" onclick="freshStart()">Empezar de cero desde hoy</button>
       <div style="font-size:10px;color:var(--text3);margin:-2px 2px 12px">Borra todos los movimientos y saldos iniciales, pero conserva tus bancos, cuentas, tarjetas, categorías y presupuestos. Después pones el saldo de cada cuenta y la deuda de cada tarjeta, y desde ese momento todo se suma solo.</div>
       <button class="danger-btn" onclick="clearAll()">Borrar todos los datos</button>
-      <div style="text-align:center;font-size:10px;color:var(--text3);margin-top:14px">finanzas pe · versión 38 · <a href="#" onclick="checkUpdate(true);return false" style="color:inherit">buscar actualización</a></div>
+      <div style="text-align:center;font-size:10px;color:var(--text3);margin-top:14px">finanzas pe · versión 39 · <a href="#" onclick="checkUpdate(true);return false" style="color:inherit">buscar actualización</a></div>
     </div>
   </div>
 
@@ -1193,7 +1193,7 @@ function owedPaid(t){return data.filter(x=>x.reimb===t.id).reduce((s,x)=>s+(x.cu
 function owedLeft(t){return t.owed&&!t.owed.done?Math.max((+t.owed.amt||0)-owedPaid(t),0):0}
 function openDebts(){return data.filter(t=>owedLeft(t)>=0.005).sort((a,b)=>b.date.localeCompare(a.date))}
 // Lo que cuenta como gasto tuyo: sin la parte que pagaste por otros
-function myAmt(t){return t.owed?Math.max(t.amt-(+t.owed.amt||0),0):t.amt}
+function myAmt(t){if(t.invest)return 0;return t.owed?Math.max(t.amt-(+t.owed.amt||0),0):t.amt}
 // El reembolso más probable para un ingreso: el de la persona cuyo nombre aparece en la descripción
 function guessDebt(desc,debts){
   const d=String(desc||'').toLowerCase();
@@ -1206,7 +1206,7 @@ function renderBudget() {
   const money=v=>sym+Math.round(v).toLocaleString('es-PE');
   // Gastado por categoría (sin transferencias entre tus cuentas)
   const spentBy={};
-  md.filter(t=>(t.type==='gasto'||t.type==='tarjeta')&&!t.isTransfer).forEach(t=>{const c=t.cat||'Otros';spentBy[c]=(spentBy[c]||0)+conv({...t,amt:myAmt(t)})});
+  md.filter(t=>(t.type==='gasto'||t.type==='tarjeta')&&!t.isTransfer&&!t.invest).forEach(t=>{const c=t.cat||'Otros';spentBy[c]=(spentBy[c]||0)+conv({...t,amt:myAmt(t)})});
   const totalSpent=Object.values(spentBy).reduce((s,v)=>s+v,0);
   const bgtOf=c=>(budgets[c]||{})[budgetCur]||0;
   const totalBgt=CATS_G.reduce((s,c)=>s+bgtOf(c),0);
@@ -1380,7 +1380,7 @@ function renderList(){
     const d=new Date(t.date+'T12:00:00');
     const ds=d.toLocaleDateString('es-PE',{day:'numeric',month:'short',...(mvFilter.range==='todo'?{year:'2-digit'}:{})});
     const sign=t.type==='ingreso'?'+':'−';
-    const ic=t.isTransfer?'↔️':t.type==='extra'?ICONS_E[t.extraCat]||'📦':t.type==='tarjeta'?'💳':t.type==='pago'?'🔁':t.type==='ingreso'?(ICONS_I[t.cat]||'💰'):(ICONS_G[t.cat]||'💸');
+    const ic=t.invest?'📈':t.isTransfer?'↔️':t.type==='extra'?ICONS_E[t.extraCat]||'📦':t.type==='tarjeta'?'💳':t.type==='pago'?'🔁':t.type==='ingreso'?(ICONS_I[t.cat]||'💰'):(ICONS_G[t.cat]||'💸');
     const iconClass=t.type==='pago'?'gasto':t.type;
     const showSub=t.cur!==displayCur;
     const metaLabel = t.type==='pago' ? 'Pago T. Crédito' : t.type==='extra' ? (LABELS_E[t.extraCat]||t.extraCat||'Extraordinario') : (t.cat||'');
@@ -1690,7 +1690,7 @@ function openTxModal(id){
     fillSel('e-sel2',ACCOUNTS,t.method);
   } else {
     l1='Categoría'; l2='Método';
-    fillSel('e-sel1',CATS_G,t.cat);
+    fillSel('e-sel1',catItems('gasto'),t.invest?'inv:'+t.invest:t.cat);
     fillSel('e-sel2',methodItems(),t.type==='tarjeta'?txCardName(t):t.method);
   }
   document.getElementById('e-lbl1').textContent=l1;
@@ -1761,7 +1761,11 @@ function saveTxModal(){
       if(ci>=0) t.ccIndex=ci;
     }
     else if(t.type==='extra'){t.extraCat=v1;t.method=v2;setCard(v2)}
-    else {t.cat=v1;t.method=v2;t.type=setCard(v2)?'tarjeta':'gasto'}
+    else {
+      if(v1.startsWith('inv:')){t.invest=v1.slice(4);t.cat='Inversión';delete t.owed}
+      else{t.cat=v1;delete t.invest}
+      t.method=v2;t.type=setCard(v2)?'tarjeta':'gasto';
+    }
     const ow=document.getElementById('e-owed');
     if(ow&&(t.type==='gasto'||t.type==='tarjeta')){
       const v=parseFloat(ow.value), done=(document.getElementById('e-owed-done')||{}).checked;
@@ -1895,10 +1899,17 @@ function exportCSV(){
 // Todo en US$. Tipos: aporte, retiro, compra, venta, dividendo, comision, valor (valor actual de un fondo sin ticker).
 // Una compra "inicial" es una posición que ya tenías: cuenta como aporte y compra a la vez.
 let INV=load('fp_inv',null)||{plats:[],ops:[],prices:{}};
-INV.plats=INV.plats||[]; INV.ops=INV.ops||[]; INV.prices=INV.prices||{}; INV.hist=INV.hist||{}; // hist: 'VOO@2026-09-16' → cierre de ese día
+INV.plats=INV.plats||[]; INV.ops=INV.ops||[];
+// Un gasto o consumo marcado como inversión (t.invest = plataforma) es un aporte a esa plataforma, en dólares
+function invOps(){
+  return [...INV.ops,...data.filter(t=>t.invest&&INV.plats.some(p=>p.name===t.invest)).map(t=>({
+    id:t.id,fromTx:t.id,plat:t.invest,type:'aporte',date:t.date,ticker:'',units:0,
+    amount:Math.round((t.cur==='USD'?t.amt:toUSD(t.amt,t.cur))*100)/100}))];
+}
+ INV.prices=INV.prices||{}; INV.hist=INV.hist||{}; // hist: 'VOO@2026-09-16' → cierre de ese día
 // Una plataforma con "valor actual" y sin compras con ticker es un fondo (si quedó como acciones, ese valor se ignoraba)
 INV.plats.forEach(p=>{
-  const ops=INV.ops.filter(o=>o.plat===p.name);
+  const ops=invOps().filter(o=>o.plat===p.name);
   if(p.kind!=='fondo'&&ops.some(o=>o.type==='valor')&&!ops.some(o=>o.type==='compra'||o.type==='venta')) p.kind='fondo';
 });
 const INV_TYPES={aporte:'Aporte',compra:'Compra',venta:'Venta',dividendo:'Dividendo',retiro:'Retiro',comision:'Comisión',valor:'Valor actual'};
@@ -1923,7 +1934,7 @@ function xirr(flows){
 
 function invCalc(plat){
   const p=INV.plats.find(x=>x.name===plat)||{kind:'broker'};
-  const ops=INV.ops.filter(o=>o.plat===plat).sort((a,b)=>a.date.localeCompare(b.date)||a.id-b.id);
+  const ops=invOps().filter(o=>o.plat===plat).sort((a,b)=>a.date.localeCompare(b.date)||a.id-b.id);
   let cash=0, aport=0, retir=0, div=0, fees=0, realized=0, fundVal=null, fundAt=null;
   const hold={}, flows=[];
   ops.forEach(o=>{
@@ -1972,7 +1983,7 @@ function invTotals(){
   const all=INV.plats.map(p=>invCalc(p.name));
   const value=all.reduce((s,x)=>s+x.value,0), aport=all.reduce((s,x)=>s+x.aport,0), net=all.reduce((s,x)=>s+x.net,0);
   const flows=[];
-  INV.ops.forEach(o=>{const d=new Date(o.date+'T12:00'),a=+o.amount||0;
+  invOps().forEach(o=>{const d=new Date(o.date+'T12:00'),a=+o.amount||0;
     if(o.type==='aporte'||(o.type==='compra'&&o.initial)) flows.push({d,v:-a}); else if(o.type==='retiro') flows.push({d,v:a})});
   return {all,value,aport,net,gain:value-net,pct:aport?(value-net)/aport:0,irr:value>0?xirr([...flows,{d:new Date(),v:value}]):null};
 }
@@ -1981,7 +1992,7 @@ function invTickers(){return [...new Set([...INV.ops.filter(o=>o.ticker).map(o=>
 function invHistNeeded(){
   const keys=[];
   INV.plats.filter(p=>p.kind==='fondo'&&p.proxy).forEach(p=>{
-    const ops=INV.ops.filter(o=>o.plat===p.name), vals=ops.filter(o=>o.type==='valor').sort((a,b)=>a.date.localeCompare(b.date));
+    const ops=invOps().filter(o=>o.plat===p.name), vals=ops.filter(o=>o.type==='valor').sort((a,b)=>a.date.localeCompare(b.date));
     const at=vals.length?vals[vals.length-1].date:null;
     if(at) keys.push(p.proxy+'@'+at);
     ops.filter(o=>(o.type==='aporte'||o.type==='retiro')&&(!at||o.date>at)).forEach(o=>keys.push(p.proxy+'@'+o.date));
@@ -2047,8 +2058,8 @@ function invPlatHtml(x){
   return `<div class="card inv-plat">${head}${body}
     ${extra?`<div class="cfg-sub" style="margin-top:8px">${extra}</div>`:''}
     <details class="inv-ops"><summary>Operaciones (${x.ops.length})</summary>
-      ${x.ops.slice().reverse().map(o=>`<div class="inv-op" onclick="openInvOp(${jsArg(x.plat)},null,${o.id})">
-        <span>${shortDate(new Date(o.date+'T12:00'))} · ${INV_TYPES[o.type]||o.type}${o.initial?' inicial':''}${o.ticker?' '+esc(o.ticker):''}${o.units?' · '+(+o.units)+' u.':''}</span><span>${usd(+o.amount||0)}</span></div>`).join('')||'<div class="cfg-sub">Sin operaciones</div>'}
+      ${x.ops.slice().reverse().map(o=>`<div class="inv-op" onclick="${o.fromTx?`openTxModal(${o.fromTx})`:`openInvOp(${jsArg(x.plat)},null,${o.id})`}">
+        <span>${shortDate(new Date(o.date+'T12:00'))} · ${INV_TYPES[o.type]||o.type}${o.initial?' inicial':''}${o.ticker?' '+esc(o.ticker):''}${o.units?' · '+(+o.units)+' u.':''}${o.fromTx?(()=>{const t=data.find(x=>x.id===o.fromTx);return t?' · desde '+esc(t.ccName||t.method||''):''})():''}</span><span>${usd(+o.amount||0)}</span></div>`).join('')||'<div class="cfg-sub">Sin operaciones</div>'}
       <button class="link-btn" onclick="openInvOp(${jsArg(x.plat)})">+ Operación en ${esc(x.plat)}</button>
     </details>
   </div>`;
@@ -2062,7 +2073,7 @@ let invPeriod=(()=>{try{return localStorage.getItem('ui_inv_period')||'1A'}catch
 let _serLoading=false, _serError='', _invChart=null;
 const INV_BENCH='VOO';
 function invSeriesNeed(){
-  const first=INV.ops.map(o=>o.date).sort()[0];
+  const first=invOps().map(o=>o.date).sort()[0];
   if(!first) return null;
   const from=todayStr(new Date(new Date(first+'T00:00').getTime()-10*864e5));
   return {from,tks:[...new Set([...invTickers(),INV_BENCH])].sort()};
@@ -2086,7 +2097,7 @@ async function loadInvSeries(force){
 // Valor del portafolio cada día de mercado y rendimiento acumulado sin contar aportes (rentabilidad ponderada en el tiempo)
 function portfolioSeries(){
   const S=INV_SER&&INV_SER.data;
-  const ops=INV.ops.slice().sort((a,b)=>a.date.localeCompare(b.date)||a.id-b.id);
+  const ops=invOps().sort((a,b)=>a.date.localeCompare(b.date)||a.id-b.id);
   if(!S||!ops.length) return null;
   const first=ops[0].date, today=todayStr();
   const set=new Set([first,today]);
@@ -2223,7 +2234,7 @@ function saveInvPlat(){
   const proxy=kind==='fondo'?((aeVal('ae-proxy').trim().toUpperCase().split(/[\s,;]+/)[0]||'').match(/^[A-Z0-9.:\-]{1,20}$/)||[''])[0]:'';
   if(!name){toast('Ponle un nombre');return}
   if(INV.plats.some(p=>p.name===name&&p.name!==old)){toast('Ya existe');return}
-  if(old){const p=INV.plats.find(x=>x.name===old);p.name=name;p.kind=kind;p.proxy=proxy;INV.ops.forEach(o=>{if(o.plat===old)o.plat=name})}
+  if(old){const p=INV.plats.find(x=>x.name===old);p.name=name;p.kind=kind;p.proxy=proxy;INV.ops.forEach(o=>{if(o.plat===old)o.plat=name});data.forEach(t=>{if(t.invest===old)t.invest=name});save()}
   else INV.plats.push({name,kind,proxy});
   saveInv(); closeAccEdit(); renderInv(); renderDash(); toast('✓ Guardado');
   if(proxy) refreshPrices(false);
@@ -2232,6 +2243,7 @@ function deleteInvPlat(){
   const n=INV.ops.filter(o=>o.plat===_ae.name).length;
   if(!confirm(`¿Eliminar ${_ae.name}${n?` y sus ${n} operaciones`:''}?`)) return;
   INV.ops=INV.ops.filter(o=>o.plat!==_ae.name); INV.plats=INV.plats.filter(p=>p.name!==_ae.name);
+  data.forEach(t=>{if(t.invest===_ae.name){delete t.invest;t.cat='Otros'}}); save();
   saveInv(); closeAccEdit(); renderInv(); renderDash();
 }
 
@@ -2611,6 +2623,27 @@ const CAT_RULES=[
   [/universidad|colegio|curso|udemy|coursera|libreria|librería/i,'Educación'],
   [/zara|h&m|saga|ripley|oechsle|falabella|nike|adidas/i,'Ropa'],
 ];
+// Opciones de categoría; los gastos pueden ser también "Aporte a <plataforma>" (valor inv:<plataforma>)
+function catItems(tipo){
+  const base=(tipo==='ingreso'?CATS_I:CATS_G).map(c=>[c,c]);
+  return tipo==='ingreso'?base:[...base,...INV.plats.map(p=>['inv:'+p.name,'📈 Aporte a '+p.name])];
+}
+function catOptionsHtml(tipo,sel){
+  const opt=([v,l])=>`<option value="${esc(v)}"${v===sel?' selected':''}>${esc(l)}</option>`;
+  const items=catItems(tipo), base=items.filter(([v])=>!v.startsWith('inv:')), inv=items.filter(([v])=>v.startsWith('inv:'));
+  return base.map(opt).join('')+(inv.length?`<optgroup label="Inversión">${inv.map(opt).join('')}</optgroup>`:'');
+}
+// Como guessCat, pero reconoce los pagos a una plataforma de inversión (ej: "Xtb.com" → Aporte a XTB)
+function guessCatFull(desc,tipo){
+  if(tipo!=='ingreso'){
+    const d=String(desc||'').toLowerCase();
+    const prev=data.filter(t=>t.invest&&t.desc&&t.desc.toLowerCase()===d)[0];
+    if(prev&&INV.plats.some(p=>p.name===prev.invest)) return 'inv:'+prev.invest;
+    const p=INV.plats.find(p=>p.name.length>=3&&d.includes(p.name.toLowerCase()));
+    if(p) return 'inv:'+p.name;
+  }
+  return guessCat(desc,tipo);
+}
 function guessCat(desc,tipo){
   const isInc=tipo==='ingreso', list=isInc?CATS_I:CATS_G;
   const d=String(desc||'').toLowerCase();
@@ -2682,7 +2715,7 @@ function renderInbox(){
       const dup=possibleDup(m);
       const amtCls=m.tipo==='ingreso'?'ingreso':m.tipo==='transferencia'?'':'gasto';
       const second=f[1].cat
-        ?`<select id="ib-cat-${m.id}">${(m.tipo==='ingreso'?CATS_I:CATS_G).map(c=>`<option value="${esc(c)}"${c===guessCat(m.desc,m.tipo)?' selected':''}>${esc(c)}</option>`).join('')}</select>`
+        ?`<select id="ib-cat-${m.id}">${catOptionsHtml(m.tipo,guessCatFull(m.desc,m.tipo))}</select>`
         :accSelect('ib-b-'+m.id,f[1].kind,suggestAcc(m[f[1].k],f[1].kind),m[f[1].k]);
       return `<div class="inbox-item">
         <div class="inbox-top">
@@ -2791,7 +2824,8 @@ function inboxToTx(m,a,b,cat,seq){
   const id=Date.now()*10+seq*2;
   const base={desc:m.desc,date:m.fecha,amt:m.monto,cur:m.moneda,srcId:m.id,auto:true};
   const asCard=(tx,name)=>{const i=cards.findIndex(c=>c.name===name);if(i>=0){tx.type='tarjeta';tx.ccName=name;tx.ccIndex=i}return tx};
-  if(m.tipo==='gasto') return [asCard({...base,id,type:'gasto',method:a,cat},a)];
+  const inv=String(cat||'').startsWith('inv:')?cat.slice(4):'';
+  if(m.tipo==='gasto') return [asCard({...base,id,type:'gasto',method:a,...(inv?{cat:'Inversión',invest:inv}:{cat})},a)];
   if(m.tipo==='ingreso') return [{...base,id,type:'ingreso',method:a,cat}];
   if(m.tipo==='pago'){
     const i=cards.findIndex(c=>c.name===b);
@@ -2841,7 +2875,7 @@ function confirmAllInbox(){
     // Usa lo que se ve en pantalla (por si cambiaste alguna categoría antes de confirmar)
     const a=val('ib-a-'+m.id)||suggestAcc(m[f[0].k],f[0].kind);
     const b=f[1].cat?'':(val('ib-b-'+m.id)||suggestAcc(m[f[1].k],f[1].kind));
-    const cat=f[1].cat?(val('ib-cat-'+m.id)||guessCat(m.desc,m.tipo)):'';
+    const cat=f[1].cat?(val('ib-cat-'+m.id)||guessCatFull(m.desc,m.tipo)):'';
     if(!acceptInbox(m,a,b,cat,i)){applyInboxShare(m);n++}
   });
   saveSyncState(); save(); render(); toast(`✓ ${n} movimiento${n>1?'s':''} registrado${n>1?'s':''}`);
@@ -3596,7 +3630,7 @@ if('serviceWorker' in navigator && location.protocol!=='file:'){
 }
 // ─── ACTUALIZACIONES ───
 // Compara con la versión publicada; si hay una más nueva, muestra un aviso para cargarla
-const APP_VERSION=38;
+const APP_VERSION=39;
 async function checkUpdate(manual){
   if(location.protocol==='file:') return;
   try{

@@ -1,1 +1,4 @@
 .DS_Store
+# Datos personales: nunca al repositorio público
+*.json
+!manifest.webmanifest
