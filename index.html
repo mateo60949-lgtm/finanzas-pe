@@ -91,6 +91,10 @@ body{font-family:'Syne',sans-serif;background:var(--bg);color:var(--text);displa
 .type-btn.active.extra{background:var(--amber-bg);color:var(--amber);border-color:#D4954A}
 .type-btn.active.tarjeta{background:var(--blue-bg);color:var(--blue);border-color:#7BA3E8}
 .type-btn.active.transferencia{background:var(--surface2);color:var(--text);border-color:var(--border2)}
+.type-btn.active.prestamo{background:var(--blue-bg);color:var(--blue);border-color:#7BA3E8}
+.type-toggle{display:grid;grid-template-columns:repeat(6,minmax(0,1fr))}
+.type-toggle .type-btn{grid-column:span 2;min-width:0}
+.type-toggle #tbtn-transferencia,.type-toggle #tbtn-prestamo{grid-column:span 3}
 .cur-toggle{display:flex;gap:5px;margin-bottom:10px}
 .cur-btn{padding:5px 14px;font-size:12px;font-weight:600;font-family:'Syne',sans-serif;border:0.5px solid var(--border2);border-radius:20px;cursor:pointer;background:transparent;color:var(--text2);transition:all 0.12s}
 .cur-btn.active{background:var(--text);color:white;border-color:var(--text)}
@@ -401,6 +405,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
         <button class="type-btn ingreso" id="tbtn-ingreso" onclick="setType('ingreso')">Ingreso</button>
         <button class="type-btn extra" id="tbtn-extra" onclick="setType('extra')">Extra</button>
         <button class="type-btn transferencia" id="tbtn-transferencia" onclick="setType('transferencia')">Transferencia</button>
+        <button class="type-btn prestamo" id="tbtn-prestamo" onclick="setType('prestamo')">Préstamo</button>
       </div>
       <div class="cur-toggle">
         <button class="cur-btn active" id="fbtn-pen" onclick="setFormCur('PEN')">S/ Soles</button>
@@ -429,6 +434,19 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
             <select id="f-cc-select"></select>
             <select id="f-cc-cat"></select>
           </div>
+        </div>
+        <div id="f-prestamo-fields" style="display:none">
+          <div class="row2" style="margin-top:7px">
+            <div>
+              <div style="font-size:10px;color:var(--text3);margin-bottom:3px;text-transform:uppercase;letter-spacing:0.05em">A quién</div>
+              <input type="text" id="f-loan-who" placeholder="Ej: Ana" autocomplete="off"/>
+            </div>
+            <div>
+              <div style="font-size:10px;color:var(--text3);margin-bottom:3px;text-transform:uppercase;letter-spacing:0.05em">Desde</div>
+              <select id="f-loan-from"></select>
+            </div>
+          </div>
+          <div class="ib-share-hint" style="margin-top:6px">La plata sale de esa cuenta, pero no cuenta como gasto. Aparece en Inicio, en «Te deben», hasta que te la devuelvan.</div>
         </div>
         <div id="f-transferencia-fields" style="display:none">
           <div class="row2" style="margin-top:7px">
@@ -581,7 +599,7 @@ select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/
       <button class="danger-btn" style="margin-bottom:8px" onclick="freshStart()">Empezar de cero desde hoy</button>
       <div style="font-size:10px;color:var(--text3);margin:-2px 2px 12px">Borra todos los movimientos y saldos iniciales, pero conserva tus bancos, cuentas, tarjetas, categorías y presupuestos. Después pones el saldo de cada cuenta y la deuda de cada tarjeta, y desde ese momento todo se suma solo.</div>
       <button class="danger-btn" onclick="clearAll()">Borrar todos los datos</button>
-      <div style="text-align:center;font-size:10px;color:var(--text3);margin-top:14px">finanzas pe · versión 39 · <a href="#" onclick="checkUpdate(true);return false" style="color:inherit">buscar actualización</a></div>
+      <div style="text-align:center;font-size:10px;color:var(--text3);margin-top:14px">finanzas pe · versión 40 · <a href="#" onclick="checkUpdate(true);return false" style="color:inherit">buscar actualización</a></div>
     </div>
   </div>
 
@@ -789,7 +807,7 @@ function accCur(accName) {
 // ─── TYPE / QUICK ───
 function setType(t) {
   curType=t;
-  ['gasto','ingreso','extra','tarjeta','transferencia'].forEach(tp=>{
+  ['gasto','ingreso','extra','tarjeta','transferencia','prestamo'].forEach(tp=>{
     const btn=document.getElementById('tbtn-'+tp);
     if(btn) btn.className='type-btn '+tp+(t===tp?' active '+tp:'');
   });
@@ -797,6 +815,7 @@ function setType(t) {
   document.getElementById('f-extra-fields').style.display         = t==='extra'         ? 'block' : 'none';
   document.getElementById('f-tarjeta-fields').style.display       = t==='tarjeta'       ? 'block' : 'none';
   document.getElementById('f-transferencia-fields').style.display = t==='transferencia' ? 'block' : 'none';
+  document.getElementById('f-prestamo-fields').style.display      = t==='prestamo'      ? 'block' : 'none';
   // cat row: visible for gasto & ingreso only
   const showCatRow = (t==='gasto' || t==='ingreso');
   document.getElementById('f-cat-row').style.display = showCatRow ? 'grid' : 'none';
@@ -823,6 +842,13 @@ function updateCatSelect() {
       ms.innerHTML = `<optgroup label="Cuentas y Métodos">${accountsHtml}</optgroup>${cardsHtml?`<optgroup label="Tarjetas de Crédito">${cardsHtml}</optgroup>`:''}`;
     }
   }
+  const lf=document.getElementById('f-loan-from');
+  if(lf){
+    const cardsHtml=opts(cards.map(c=>c.name));
+    lf.innerHTML=`<optgroup label="Cuentas">${opts(ACCOUNTS)}</optgroup>${cardsHtml?`<optgroup label="Tarjetas de Crédito">${cardsHtml}</optgroup>`:''}`;
+    // Por defecto, la cuenta con Yape
+    const y=ACCOUNTS.find(a=>accMeta&&accMeta[a]&&accMeta[a].yape); if(y) lf.value=y;
+  }
   const em=document.getElementById('f-extra-method');
   if(em){
     const accountsHtml=opts(ACCOUNTS);
@@ -843,7 +869,7 @@ function updateCatSelect() {
 }
 
 function renderQuick() {
-  const hideQuick = (curType==='transferencia' || curType==='tarjeta');
+  const hideQuick = (curType==='transferencia' || curType==='tarjeta' || curType==='prestamo');
   document.querySelector('.quick-label').style.display = hideQuick ? 'none' : '';
   document.getElementById('quick-btns').style.display  = hideQuick ? 'none' : '';
   if(hideQuick) return;
@@ -879,6 +905,18 @@ function addTransaction() {
     document.getElementById('f-desc').value='';
     document.getElementById('f-amt').value='';
     render(); toast('↔ Transferencia registrada');
+    return;
+  }
+  // Préstamo a otra persona: sale de tu cuenta como un gasto que te deben completo (no cuenta como gasto tuyo)
+  if(curType==='prestamo'){
+    const who=document.getElementById('f-loan-who').value.trim(), from=document.getElementById('f-loan-from').value;
+    if(!who||!amt||!date){toast('Completa a quién, monto y fecha');return}
+    const tx={id:Date.now(),type:'gasto',desc:desc||'Préstamo a '+who,amt,date,cur:formCur,method:from,cat:'Préstamo',loan:true,owed:{amt,who}};
+    const ci=cards.findIndex(c=>c.name===from);
+    if(ci>=0){tx.type='tarjeta';tx.ccName=from;tx.ccIndex=ci}
+    data.push(tx); save();
+    ['f-desc','f-amt','f-loan-who'].forEach(id=>document.getElementById(id).value='');
+    render(); toast('🤝 Préstamo a '+who+' registrado');
     return;
   }
   if(!desc||!amt||!date){toast('Completa descripción, monto y fecha');return}
@@ -1206,7 +1244,7 @@ function renderBudget() {
   const money=v=>sym+Math.round(v).toLocaleString('es-PE');
   // Gastado por categoría (sin transferencias entre tus cuentas)
   const spentBy={};
-  md.filter(t=>(t.type==='gasto'||t.type==='tarjeta')&&!t.isTransfer&&!t.invest).forEach(t=>{const c=t.cat||'Otros';spentBy[c]=(spentBy[c]||0)+conv({...t,amt:myAmt(t)})});
+  md.filter(t=>(t.type==='gasto'||t.type==='tarjeta')&&!t.isTransfer&&!t.invest&&!t.loan).forEach(t=>{const c=t.cat||'Otros';spentBy[c]=(spentBy[c]||0)+conv({...t,amt:myAmt(t)})});
   const totalSpent=Object.values(spentBy).reduce((s,v)=>s+v,0);
   const bgtOf=c=>(budgets[c]||{})[budgetCur]||0;
   const totalBgt=CATS_G.reduce((s,c)=>s+bgtOf(c),0);
@@ -1380,13 +1418,13 @@ function renderList(){
     const d=new Date(t.date+'T12:00:00');
     const ds=d.toLocaleDateString('es-PE',{day:'numeric',month:'short',...(mvFilter.range==='todo'?{year:'2-digit'}:{})});
     const sign=t.type==='ingreso'?'+':'−';
-    const ic=t.invest?'📈':t.isTransfer?'↔️':t.type==='extra'?ICONS_E[t.extraCat]||'📦':t.type==='tarjeta'?'💳':t.type==='pago'?'🔁':t.type==='ingreso'?(ICONS_I[t.cat]||'💰'):(ICONS_G[t.cat]||'💸');
+    const ic=t.loan?'🤝':t.invest?'📈':t.isTransfer?'↔️':t.type==='extra'?ICONS_E[t.extraCat]||'📦':t.type==='tarjeta'?'💳':t.type==='pago'?'🔁':t.type==='ingreso'?(ICONS_I[t.cat]||'💰'):(ICONS_G[t.cat]||'💸');
     const iconClass=t.type==='pago'?'gasto':t.type;
     const showSub=t.cur!==displayCur;
     const metaLabel = t.type==='pago' ? 'Pago T. Crédito' : t.type==='extra' ? (LABELS_E[t.extraCat]||t.extraCat||'Extraordinario') : (t.cat||'');
     return `<div class="tx-item">
       <div class="tx-icon ${t.type}">${ic}</div>
-      <div class="tx-info" onclick="openTxModal(${t.id})"><div class="tx-desc">${esc(t.desc)}${t.recurId?' <span class="mv-tag">🔁</span>':''}</div><div class="tx-meta">${esc(metaLabel)} · ${esc(t.ccName||t.method||'')} · ${ds}</div>${t.owed?`<div class="tx-share">👥 ${owedLeft(t)>=0.005?'Te debe'+(t.owed.who?'n':'')+' '+fmtOrig(owedLeft(t),t.cur)+(t.owed.who?' · '+esc(t.owed.who):''):'Ya te devolvieron'+(t.owed.who?' · '+esc(t.owed.who):'')} · tu parte ${fmtOrig(myAmt(t),t.cur)}</div>`:''}${t.reimb?`<div class="tx-share">↩ Te devolvieron${(()=>{const g=data.find(x=>x.id===t.reimb);return g?' · '+esc(g.desc):''})()}</div>`:''}</div>
+      <div class="tx-info" onclick="openTxModal(${t.id})"><div class="tx-desc">${esc(t.desc)}${t.recurId?' <span class="mv-tag">🔁</span>':''}</div><div class="tx-meta">${esc(metaLabel)} · ${esc(t.ccName||t.method||'')} · ${ds}</div>${t.owed?`<div class="tx-share">${t.loan?'🤝':'👥'} ${owedLeft(t)>=0.005?'Te debe'+(t.owed.who?'n':'')+' '+fmtOrig(owedLeft(t),t.cur)+(t.owed.who?' · '+esc(t.owed.who):''):'Ya te devolvieron'+(t.owed.who?' · '+esc(t.owed.who):'')}${t.loan?'':' · tu parte '+fmtOrig(myAmt(t),t.cur)}</div>`:''}${t.reimb?`<div class="tx-share">↩ Te devolvieron${(()=>{const g=data.find(x=>x.id===t.reimb);return g?' · '+esc(g.desc):''})()}</div>`:''}</div>
       <div class="tx-right"><div class="tx-amt ${iconClass}">${sign} ${fmtOrig(t.amt,t.cur)}</div>${showSub?`<div class="tx-sub">≈ ${fmt(toDisplay(t.amt,t.cur))}</div>`:''}</div>
       <button class="tx-del" onclick="deleteTx(${t.id})">×</button>
     </div>`;
@@ -1690,7 +1728,7 @@ function openTxModal(id){
     fillSel('e-sel2',ACCOUNTS,t.method);
   } else {
     l1='Categoría'; l2='Método';
-    fillSel('e-sel1',catItems('gasto'),t.invest?'inv:'+t.invest:t.cat);
+    fillSel('e-sel1',t.loan?[['Préstamo','🤝 Préstamo']]:catItems('gasto'),t.invest?'inv:'+t.invest:t.cat);
     fillSel('e-sel2',methodItems(),t.type==='tarjeta'?txCardName(t):t.method);
   }
   document.getElementById('e-lbl1').textContent=l1;
@@ -1702,7 +1740,7 @@ function txShareHtml(t){
   if(t.isTransfer) return '';
   if(t.type==='gasto'||t.type==='tarjeta'){
     const o=t.owed||{}, paid=t.owed?owedPaid(t):0;
-    return `<details class="ib-share"${t.owed?' open':''}><summary>👥 Pagué por otros</summary>
+    return `<details class="ib-share"${t.owed?' open':''}><summary>${t.loan?'🤝 Préstamo':'👥 Pagué por otros'}</summary>
       <div class="row2" style="margin-top:8px">
         <div><div class="e-lbl">Me deben</div><input id="e-owed" type="number" min="0" step="0.01" inputmode="decimal" value="${o.amt||''}" placeholder="0.00"/></div>
         <div><div class="e-lbl">Quién</div><input id="e-who" value="${esc(o.who||'')}" placeholder="Ej: Ana" autocomplete="off"/></div>
@@ -3630,7 +3668,7 @@ if('serviceWorker' in navigator && location.protocol!=='file:'){
 }
 // ─── ACTUALIZACIONES ───
 // Compara con la versión publicada; si hay una más nueva, muestra un aviso para cargarla
-const APP_VERSION=39;
+const APP_VERSION=40;
 async function checkUpdate(manual){
   if(location.protocol==='file:') return;
   try{
